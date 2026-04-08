@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Circuit Graph — Austin · Supernode Reposition</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&family=Syne:wght@400;600;800&display=swap');
+
+:root {
+  --bg:        #060910;
+  --bg2:       #0b1020;
+  --border:    #1a2540;
+  --text:      #c8d4e8;
+  --dim:       #3a4a60;
+  --accent:    #3d8eff;
+  --gold:      #f5a623;
+  --red:       #f43f5e;
+  --green:     #10b981;
+  --purple:    #8b5cf6;
+}
+
+* { box-sizing:border-box; margin:0; padding:0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  overflow: hidden;
+}
+
+#app { display:flex; height:100vh; width:100vw; }
+
+/* ── Sidebar ── */
+#sidebar {
+  width: 300px;
+  min-width: 300px;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#sidebar-header {
+  padding: 18px 16px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+#sidebar-header h2 {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: .08em;
+  color: var(--accent);
+  margin-bottom: 3px;
+}
+
+#sidebar-header p {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: .06em;
+}
+
+/* ── Toggle buttons ── */
+#btn-wrap {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.toggle-btn {
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--dim);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: .08em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.toggle-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.toggle-btn.active {
+  background: rgba(61,142,255,0.08);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.toggle-btn .dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--dim);
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.toggle-btn.active .dot { background: var(--accent); }
+
+.toggle-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.toggle-btn:disabled:hover {
+  border-color: var(--border);
+  color: var(--dim);
+}
+
+/* ── Controls ── */
+#controls {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 9px;
+  color: var(--dim);
+}
+
+.control-row label { min-width: 78px; letter-spacing:.04em; }
+
+input[type=range] {
+  flex: 1;
+  accent-color: var(--accent);
+  height: 2px;
+}
+
+.val-display {
+  min-width: 28px;
+  text-align: right;
+  color: var(--accent);
+  font-size: 9px;
+}
+
+/* ── Legend ── */
+#legend {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+#legend h3 {
+  font-size: 8px;
+  letter-spacing: .12em;
+  color: var(--dim);
+  text-transform: uppercase;
+  margin-bottom: 7px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+  font-size: 9px;
+  color: var(--dim);
+}
+
+.legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+/* ── Supernode legend ── */
+#sn-legend {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: none;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+#sn-legend.visible { display: block; }
+
+#sn-legend h3 {
+  font-size: 8px;
+  letter-spacing: .12em;
+  color: var(--dim);
+  text-transform: uppercase;
+  margin-bottom: 7px;
+}
+
+.sn-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+  font-size: 9px;
+  color: var(--dim);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+
+.sn-legend-item:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+.sn-legend-item .sn-dot { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+.sn-legend-item .sn-count { margin-left:auto; opacity:.5; font-size:8px; }
+
+/* ── Node info panel ── */
+#node-info {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+
+#node-info h3 {
+  font-size: 8px;
+  letter-spacing: .12em;
+  color: var(--dim);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 9px;
+}
+
+.info-label { color: var(--dim); }
+.info-value { color: var(--text); }
+
+.info-clerp {
+  font-size: 10px;
+  color: var(--accent);
+  margin-bottom: 10px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  background: rgba(61,142,255,0.06);
+  border-radius: 3px;
+  border-left: 2px solid var(--accent);
+}
+
+.info-sn-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-size: 8px;
+  letter-spacing: .05em;
+  margin-bottom: 8px;
+}
+
+.bar-container { margin-top: 4px; margin-bottom: 5px; }
+.bar-label { font-size: 8px; color: var(--dim); margin-bottom: 2px; }
+.bar-track { height: 3px; background: rgba(255,255,255,0.05); border-radius:2px; overflow:hidden; }
+.bar-fill  { height: 100%; border-radius:2px; transition: width 0.3s; }
+
+/* ── Canvas ── */
+#canvas { flex:1; position:relative; overflow:hidden; }
+svg { width:100%; height:100%; }
+
+.node circle { cursor:pointer; transition: r 0.15s; }
+.node:hover circle { filter: brightness(1.3); }
+.node text { pointer-events:none; font-family:'JetBrains Mono', monospace; }
+
+.link { fill:none; stroke-linecap:round; }
+.layer-line { stroke-dasharray:2,8; }
+
+/* Supernode hull regions */
+.sn-hull {
+  fill-opacity: 0.06;
+  stroke-width: 1.5;
+  stroke-dasharray: none;
+  stroke-opacity: 0.35;
+  pointer-events: none;
+  transition: fill-opacity 0.3s;
+}
+
+.sn-hull:hover { fill-opacity: 0.12; }
+
+.sn-label {
+  pointer-events: none;
+  font-family: 'Syne', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.sn-label.visible { opacity: 0.55; }
+
+/* Tooltip for full clerp */
+.clerp-tooltip {
+  position: absolute;
+  background: #0d1525;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.15s;
+  max-width: 350px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clerp-tooltip.show { opacity: 1; }
+
+#title-overlay {
+  position: absolute;
+  top: 14px; left: 14px;
+  font-size: 8px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  pointer-events: none;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius:2px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+
+    <div id="sidebar-header">
+      <h2>Circuit Graph</h2>
+      <p>Gemma-2-2B &middot; Austin prediction &middot; supernode reposition</p>
+    </div>
+
+    <div id="btn-wrap">
+      <button class="toggle-btn" id="sn-toggle" onclick="toggleSupernode()">
+        <span class="dot"></span>
+        <span id="sn-toggle-label">SHOW SUPERNODES</span>
+      </button>
+      <button class="toggle-btn" id="repo-toggle" onclick="toggleReposition()" disabled>
+        <span class="dot"></span>
+        <span id="repo-toggle-label">REPOSITION BY CLUSTER</span>
+      </button>
+    </div>
+
+    <div id="controls">
+      <div class="control-row">
+        <label>Flow thresh</label>
+        <input type="range" id="flow-thresh" min="0" max="500" value="10" step="5">
+        <span class="val-display" id="flow-val">10</span>
+      </div>
+      <div class="control-row">
+        <label>Node size</label>
+        <input type="range" id="node-size" min="3" max="20" value="8" step="1">
+        <span class="val-display" id="size-val">8</span>
+      </div>
+      <div class="control-row">
+        <label>Edge opacity</label>
+        <input type="range" id="edge-opacity" min="5" max="100" value="30" step="5">
+        <span class="val-display" id="opacity-val">30</span>
+      </div>
+    </div>
+
+    <div id="legend">
+      <h3>Legend</h3>
+      <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>Embedding</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div>Transcoder low inf</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#3d8eff"></div>Transcoder high inf</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>Logit output</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f5a623"></div>Edge &rarr; Logit</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div>Suppression (&minus;)</div>
+    </div>
+
+    <div id="sn-legend">
+      <h3>Supernodes</h3>
+      <div id="sn-legend-items"></div>
+    </div>
+
+    <div id="node-info">
+      <h3>Node inspector</h3>
+      <p style="font-size:9px;color:var(--dim)">Click a node to inspect</p>
+    </div>
+
+  </div>
+
+  <div id="canvas">
+    <div id="title-overlay">prompt: "Fact: The capital of the state containing Dallas is"</div>
+    <div class="clerp-tooltip" id="tooltip"></div>
+    <svg id="svg"></svg>
+  </div>
+</div>
+
+<script>
+const GRAPH_DATA    = {"nodes":[{"id":"1_89326_9","idx":0,"layer":1,"clerp":"Dallas","activation":9.1875,"influence":0.4841025769710541,"node_inf":0.6338451504707336,"node_rel":0.6352778077125549,"type":"transcoder","ctx_idx":9},{"id":"7_24743_9","idx":1,"layer":7,"clerp":"Texas legal matters","activation":3.515625,"influence":0.4604751169681549,"node_inf":0.6120493412017822,"node_rel":0.6976507902145386,"type":"transcoder","ctx_idx":9},{"id":"16_89970_9","idx":2,"layer":16,"clerp":"Texas","activation":2.40625,"influence":0.40106865763664246,"node_inf":0.5723963379859924,"node_rel":0.6424320340156555,"type":"transcoder","ctx_idx":9},{"id":"17_1822_10","idx":3,"layer":17,"clerp":"place names","activation":2.0625,"influence":0.4918775260448456,"node_inf":0.6403317451477051,"node_rel":0.5670413374900818,"type":"transcoder","ctx_idx":10},{"id":"17_98126_10","idx":4,"layer":17,"clerp":"Government buildings/institutions","activation":2.5,"influence":0.4994155764579773,"node_inf":0.6271374821662903,"node_rel":0.6482846140861511,"type":"transcoder","ctx_idx":10},{"id":"18_3623_10","idx":5,"layer":18,"clerp":"capital cities","activation":1.515625,"influence":0.43141090869903564,"node_inf":0.5764042735099792,"node_rel":0.6277174353599548,"type":"transcoder","ctx_idx":10},{"id":"18_45367_10","idx":6,"layer":18,"clerp":"US cities","activation":0.50390625,"influence":0.5699911713600159,"node_inf":0.6881327033042908,"node_rel":0.5960058569908142,"type":"transcoder","ctx_idx":10},{"id":"18_61980_10","idx":7,"layer":18,"clerp":"Texas related","activation":2.265625,"influence":0.5064738988876343,"node_inf":0.6503652334213257,"node_rel":0.6506885290145874,"type":"transcoder","ctx_idx":10},{"id":"19_54790_10","idx":8,"layer":19,"clerp":"Places","activation":3.9375,"influence":0.47289544343948364,"node_inf":0.6360085010528564,"node_rel":0.6441317796707153,"type":"transcoder","ctx_idx":10},{"id":"20_44686_9","idx":9,"layer":20,"clerp":"Texas locations/legal contexts","activation":3.203125,"influence":0.405597448348999,"node_inf":0.5682745575904846,"node_rel":0.5120062232017517,"type":"transcoder","ctx_idx":9},{"id":"20_44686_10","idx":10,"layer":20,"clerp":"Texas locations/legal contexts","activation":4.25,"influence":0.35407084226608276,"node_inf":0.5273332595825195,"node_rel":0.5191220045089722,"type":"transcoder","ctx_idx":10},{"id":"20_74108_10","idx":11,"layer":20,"clerp":"capital","activation":4.5625,"influence":0.4190360903739929,"node_inf":0.5873730778694153,"node_rel":0.5618082284927368,"type":"transcoder","ctx_idx":10},{"id":"21_61721_10","idx":12,"layer":21,"clerp":"code/documentation","activation":2.78125,"influence":0.46988311409950256,"node_inf":0.6148593425750732,"node_rel":0.5810048580169678,"type":"transcoder","ctx_idx":10},{"id":"21_84338_10","idx":13,"layer":21,"clerp":"Cities and locations","activation":3.71875,"influence":0.42747077345848083,"node_inf":0.5839060544967651,"node_rel":0.5022703409194946,"type":"transcoder","ctx_idx":10},{"id":"22_11998_10","idx":14,"layer":22,"clerp":"Texas and Dallas","activation":5.125,"influence":0.3718968629837036,"node_inf":0.5599021315574646,"node_rel":0.494268000125885,"type":"transcoder","ctx_idx":10},{"id":"22_32893_10","idx":15,"layer":22,"clerp":"Texas legal documents","activation":4.1875,"influence":0.4536067843437195,"node_inf":0.5907537937164307,"node_rel":0.522559642791748,"type":"transcoder","ctx_idx":10},{"id":"22_74186_10","idx":16,"layer":22,"clerp":"general news snippets","activation":0.4140625,"influence":0.555222749710083,"node_inf":0.6697282791137695,"node_rel":0.5463791489601135,"type":"transcoder","ctx_idx":10},{"id":"22_81571_10","idx":17,"layer":22,"clerp":"Texas locations and organizations","activation":1.1484375,"influence":0.5288102030754089,"node_inf":0.6626384854316711,"node_rel":0.5418845415115356,"type":"transcoder","ctx_idx":10},{"id":"E_6037_4","idx":18,"layer":0,"clerp":"Emb: \"  capital\"","activation":22.61808216571808,"influence":0.2261808216571808,"node_inf":0.4552099406719208,"node_rel":0.052556075155735016,"type":"embedding","ctx_idx":4},{"id":"E_2329_7","idx":19,"layer":0,"clerp":"Emb: \"  state\"","activation":30.94547390937805,"influence":0.3094547390937805,"node_inf":0.5198944807052612,"node_rel":0.15766821801662445,"type":"embedding","ctx_idx":7},{"id":"E_26865_9","idx":20,"layer":0,"clerp":"Emb: \"  Dallas\"","activation":11.287522315979004,"influence":0.11287522315979004,"node_inf":0.38820645213127136,"node_rel":0.10511215031147003,"type":"embedding","ctx_idx":9},{"id":"27_22605_10","idx":21,"layer":27,"clerp":"Output \" Austin\" (p=0.439)","activation":43.9453125,"influence":0.0,"node_inf":0.30819204449653625,"node_rel":0.27505144476890564,"type":"logit","ctx_idx":10}],"edges":[{"source":"1_89326_9","target":"E_26865_9","weight":9.6875,"flow":89.00390625,"abs_flow":89.00390625,"to_logit":false},{"source":"1_89326_9","target":"27_22605_10","weight":0.4841025769710541,"flow":4.447692394256592,"abs_flow":4.447692394256592,"to_logit":true},{"source":"7_24743_9","target":"1_89326_9","weight":-0.9765625,"flow":-3.4332275390625,"abs_flow":3.4332275390625,"to_logit":false},{"source":"7_24743_9","target":"E_26865_9","weight":5.125,"flow":18.017578125,"abs_flow":18.017578125,"to_logit":false},{"source":"7_24743_9","target":"27_22605_10","weight":0.4604751169681549,"flow":1.6188578605651855,"abs_flow":1.6188578605651855,"to_logit":true},{"source":"16_89970_9","target":"7_24743_9","weight":0.48046875,"flow":1.1561279296875,"abs_flow":1.1561279296875,"to_logit":false},{"source":"16_89970_9","target":"E_2329_7","weight":0.2490234375,"flow":0.599212646484375,"abs_flow":0.599212646484375,"to_logit":false},{"source":"16_89970_9","target":"E_26865_9","weight":3.390625,"flow":8.15869140625,"abs_flow":8.15869140625,"to_logit":false},{"source":"16_89970_9","target":"27_22605_10","weight":0.40106865763664246,"flow":0.965071439743042,"abs_flow":0.965071439743042,"to_logit":true},{"source":"17_1822_10","target":"E_6037_4","weight":0.88671875,"flow":1.828857421875,"abs_flow":1.828857421875,"to_logit":false},{"source":"17_1822_10","target":"27_22605_10","weight":0.4918775260448456,"flow":1.0144973993301392,"abs_flow":1.0144973993301392,"to_logit":true},{"source":"17_98126_10","target":"E_6037_4","weight":1.359375,"flow":3.3984375,"abs_flow":3.3984375,"to_logit":false},{"source":"17_98126_10","target":"E_2329_7","weight":0.56640625,"flow":1.416015625,"abs_flow":1.416015625,"to_logit":false},{"source":"17_98126_10","target":"27_22605_10","weight":0.4994155764579773,"flow":1.2485389709472656,"abs_flow":1.2485389709472656,"to_logit":true},{"source":"18_3623_10","target":"17_98126_10","weight":1.1875,"flow":1.7998046875,"abs_flow":1.7998046875,"to_logit":false},{"source":"18_3623_10","target":"E_6037_4","weight":0.474609375,"flow":0.719329833984375,"abs_flow":0.719329833984375,"to_logit":false},{"source":"18_3623_10","target":"27_22605_10","weight":0.43141090869903564,"flow":0.6538571715354919,"abs_flow":0.6538571715354919,"to_logit":true},{"source":"18_45367_10","target":"E_6037_4","weight":1.1015625,"flow":0.555084228515625,"abs_flow":0.555084228515625,"to_logit":false},{"source":"18_45367_10","target":"27_22605_10","weight":0.5699911713600159,"flow":0.28722211718559265,"abs_flow":0.28722211718559265,"to_logit":true},{"source":"18_61980_10","target":"E_26865_9","weight":2.234375,"flow":5.062255859375,"abs_flow":5.062255859375,"to_logit":false},{"source":"18_61980_10","target":"27_22605_10","weight":0.5064738988876343,"flow":1.1474798917770386,"abs_flow":1.1474798917770386,"to_logit":true},{"source":"19_54790_10","target":"E_6037_4","weight":0.8046875,"flow":3.16845703125,"abs_flow":3.16845703125,"to_logit":false},{"source":"19_54790_10","target":"27_22605_10","weight":0.47289544343948364,"flow":1.8620258569717407,"abs_flow":1.8620258569717407,"to_logit":true},{"source":"20_44686_9","target":"1_89326_9","weight":-0.5390625,"flow":-1.7266845703125,"abs_flow":1.7266845703125,"to_logit":false},{"source":"20_44686_9","target":"7_24743_9","weight":0.62890625,"flow":2.01446533203125,"abs_flow":2.01446533203125,"to_logit":false},{"source":"20_44686_9","target":"16_89970_9","weight":1.28125,"flow":4.10400390625,"abs_flow":4.10400390625,"to_logit":false},{"source":"20_44686_9","target":"E_26865_9","weight":5.53125,"flow":17.71728515625,"abs_flow":17.71728515625,"to_logit":false},{"source":"20_44686_9","target":"27_22605_10","weight":0.405597448348999,"flow":1.2991793155670166,"abs_flow":1.2991793155670166,"to_logit":true},{"source":"20_44686_10","target":"7_24743_9","weight":0.578125,"flow":2.45703125,"abs_flow":2.45703125,"to_logit":false},{"source":"20_44686_10","target":"16_89970_9","weight":0.609375,"flow":2.58984375,"abs_flow":2.58984375,"to_logit":false},{"source":"20_44686_10","target":"E_6037_4","weight":0.361328125,"flow":1.53564453125,"abs_flow":1.53564453125,"to_logit":false},{"source":"20_44686_10","target":"E_2329_7","weight":0.333984375,"flow":1.41943359375,"abs_flow":1.41943359375,"to_logit":false},{"source":"20_44686_10","target":"E_26865_9","weight":3.75,"flow":15.9375,"abs_flow":15.9375,"to_logit":false},{"source":"20_44686_10","target":"27_22605_10","weight":0.35407084226608276,"flow":1.5048010349273682,"abs_flow":1.5048010349273682,"to_logit":true},{"source":"20_74108_10","target":"17_98126_10","weight":0.8046875,"flow":3.67138671875,"abs_flow":3.67138671875,"to_logit":false},{"source":"20_74108_10","target":"E_6037_4","weight":1.0078125,"flow":4.59814453125,"abs_flow":4.59814453125,"to_logit":false},{"source":"20_74108_10","target":"E_2329_7","weight":0.5625,"flow":2.56640625,"abs_flow":2.56640625,"to_logit":false},{"source":"20_74108_10","target":"27_22605_10","weight":0.4190360903739929,"flow":1.9118521213531494,"abs_flow":1.9118521213531494,"to_logit":true},{"source":"21_61721_10","target":"20_44686_10","weight":0.98828125,"flow":2.7486572265625,"abs_flow":2.7486572265625,"to_logit":false},{"source":"21_61721_10","target":"E_6037_4","weight":0.6953125,"flow":1.933837890625,"abs_flow":1.933837890625,"to_logit":false},{"source":"21_61721_10","target":"E_26865_9","weight":0.57421875,"flow":1.5970458984375,"abs_flow":1.5970458984375,"to_logit":false},{"source":"21_61721_10","target":"27_22605_10","weight":0.46988311409950256,"flow":1.3068623542785645,"abs_flow":1.3068623542785645,"to_logit":true},{"source":"21_84338_10","target":"18_3623_10","weight":0.9765625,"flow":3.631591796875,"abs_flow":3.631591796875,"to_logit":false},{"source":"21_84338_10","target":"E_6037_4","weight":0.73046875,"flow":2.7164306640625,"abs_flow":2.7164306640625,"to_logit":false},{"source":"21_84338_10","target":"27_22605_10","weight":0.42747077345848083,"flow":1.589656949043274,"abs_flow":1.589656949043274,"to_logit":true},{"source":"22_11998_10","target":"16_89970_9","weight":0.447265625,"flow":2.292236328125,"abs_flow":2.292236328125,"to_logit":false},{"source":"22_11998_10","target":"20_44686_10","weight":1.4140625,"flow":7.2470703125,"abs_flow":7.2470703125,"to_logit":false},{"source":"22_11998_10","target":"E_6037_4","weight":0.43359375,"flow":2.22216796875,"abs_flow":2.22216796875,"to_logit":false},{"source":"22_11998_10","target":"E_26865_9","weight":3.5625,"flow":18.2578125,"abs_flow":18.2578125,"to_logit":false},{"source":"22_11998_10","target":"27_22605_10","weight":0.3718968629837036,"flow":1.9059714078903198,"abs_flow":1.9059714078903198,"to_logit":true},{"source":"22_32893_10","target":"20_44686_10","weight":1.046875,"flow":4.3837890625,"abs_flow":4.3837890625,"to_logit":false},{"source":"22_32893_10","target":"21_84338_10","weight":0.66015625,"flow":2.764404296875,"abs_flow":2.764404296875,"to_logit":false},{"source":"22_32893_10","target":"E_26865_9","weight":1.328125,"flow":5.5615234375,"abs_flow":5.5615234375,"to_logit":false},{"source":"22_32893_10","target":"27_22605_10","weight":0.4536067843437195,"flow":1.8994784355163574,"abs_flow":1.8994784355163574,"to_logit":true},{"source":"22_74186_10","target":"E_26865_9","weight":2.171875,"flow":0.8992919921875,"abs_flow":0.8992919921875,"to_logit":false},{"source":"22_74186_10","target":"27_22605_10","weight":0.555222749710083,"flow":0.2298969179391861,"abs_flow":0.2298969179391861,"to_logit":true},{"source":"22_81571_10","target":"20_44686_10","weight":1.3046875,"flow":1.49835205078125,"abs_flow":1.49835205078125,"to_logit":false},{"source":"22_81571_10","target":"E_26865_9","weight":1.1640625,"flow":1.33685302734375,"abs_flow":1.33685302734375,"to_logit":false},{"source":"22_81571_10","target":"27_22605_10","weight":0.5288102030754089,"flow":0.6073054671287537,"abs_flow":0.6073054671287537,"to_logit":true},{"source":"E_6037_4","target":"27_22605_10","weight":0.2261808216571808,"flow":5.115776538848877,"abs_flow":5.115776538848877,"to_logit":true},{"source":"E_2329_7","target":"27_22605_10","weight":0.3094547390937805,"flow":9.576223373413086,"abs_flow":9.576223373413086,"to_logit":true},{"source":"E_26865_9","target":"27_22605_10","weight":0.11287522315979004,"flow":1.2740815877914429,"abs_flow":1.2740815877914429,"to_logit":true},{"source":"27_22605_10","target":"7_24743_9","weight":0.6875,"flow":30.21240234375,"abs_flow":30.21240234375,"to_logit":false},{"source":"27_22605_10","target":"16_89970_9","weight":1.0859375,"flow":47.72186279296875,"abs_flow":47.72186279296875,"to_logit":false},{"source":"27_22605_10","target":"17_1822_10","weight":0.578125,"flow":25.4058837890625,"abs_flow":25.4058837890625,"to_logit":false},{"source":"27_22605_10","target":"17_98126_10","weight":0.578125,"flow":25.4058837890625,"abs_flow":25.4058837890625,"to_logit":false},{"source":"27_22605_10","target":"18_3623_10","weight":1.109375,"flow":48.7518310546875,"abs_flow":48.7518310546875,"to_logit":false},{"source":"27_22605_10","target":"18_45367_10","weight":0.359375,"flow":15.7928466796875,"abs_flow":15.7928466796875,"to_logit":false},{"source":"27_22605_10","target":"18_61980_10","weight":-0.5234375,"flow":-23.00262451171875,"abs_flow":23.00262451171875,"to_logit":false},{"source":"27_22605_10","target":"19_54790_10","weight":0.5625,"flow":24.71923828125,"abs_flow":24.71923828125,"to_logit":false},{"source":"27_22605_10","target":"20_44686_9","weight":1.1875,"flow":52.18505859375,"abs_flow":52.18505859375,"to_logit":false},{"source":"27_22605_10","target":"20_44686_10","weight":2.046875,"flow":89.9505615234375,"abs_flow":89.9505615234375,"to_logit":false},{"source":"27_22605_10","target":"20_74108_10","weight":0.96875,"flow":42.572021484375,"abs_flow":42.572021484375,"to_logit":false},{"source":"27_22605_10","target":"21_61721_10","weight":0.8203125,"flow":36.04888916015625,"abs_flow":36.04888916015625,"to_logit":false},{"source":"27_22605_10","target":"21_84338_10","weight":1.0,"flow":43.9453125,"abs_flow":43.9453125,"to_logit":false},{"source":"27_22605_10","target":"22_11998_10","weight":-1.3125,"flow":-57.67822265625,"abs_flow":57.67822265625,"to_logit":false},{"source":"27_22605_10","target":"22_32893_10","weight":1.0,"flow":43.9453125,"abs_flow":43.9453125,"to_logit":false},{"source":"27_22605_10","target":"22_74186_10","weight":-0.408203125,"flow":-17.938613891601562,"abs_flow":17.938613891601562,"to_logit":false},{"source":"27_22605_10","target":"22_81571_10","weight":-0.4609375,"flow":-20.25604248046875,"abs_flow":20.25604248046875,"to_logit":false},{"source":"27_22605_10","target":"E_6037_4","weight":-0.470703125,"flow":-20.685195922851562,"abs_flow":20.685195922851562,"to_logit":false},{"source":"27_22605_10","target":"E_2329_7","weight":0.431640625,"flow":18.968582153320312,"abs_flow":18.968582153320312,"to_logit":false},{"source":"27_22605_10","target":"E_26865_9","weight":4.65625,"flow":204.620361328125,"abs_flow":204.620361328125,"to_logit":false}]};
+const SUPERNODE_MAP = {"SN_00_L1_7":["1_89326_9","7_24743_9"],"SN_01_L16":["16_89970_9"],"SN_02_L17_21":["17_1822_10","17_98126_10","18_45367_10","19_54790_10","21_61721_10","21_84338_10"],"SN_03_L18_22":["18_61980_10","22_11998_10","22_74186_10","22_81571_10"],"SN_04_L18_20":["18_3623_10","20_74108_10"],"SN_05_L20_22":["20_44686_9","20_44686_10","22_32893_10"],"SN_EMB":["E_6037_4","E_2329_7","E_26865_9"],"SN_LOGIT":["27_22605_10"]};
+
+// ── Supernode color palette ──────────────────────────────────────────────────
+const SN_PALETTE = [
+  '#3d8eff','#f5a623','#10b981','#f43f5e','#8b5cf6',
+  '#06b6d4','#ec4899','#84cc16','#f97316','#14b8a6',
+  '#a78bfa','#fb7185',
+];
+
+const node2sn = {};
+const snNames = Object.keys(SUPERNODE_MAP);
+snNames.forEach(sn => {
+  SUPERNODE_MAP[sn].forEach(nid => { node2sn[nid] = sn; });
+});
+
+const snColor = {};
+let ci = 0;
+snNames.forEach(sn => {
+  if (sn === 'SN_EMB')   { snColor[sn] = '#f5a623'; return; }
+  if (sn === 'SN_LOGIT') { snColor[sn] = '#f43f5e'; return; }
+  snColor[sn] = SN_PALETTE[ci++ % SN_PALETTE.length];
+});
+
+// ── State ────────────────────────────────────────────────────────────────────
+let supernodeActive = false;
+let repositioned    = false;
+let currentFlowThresh = 10;
+let currentNodeSize   = 8;
+let currentOpacity    = 0.30;
+let highlightedSN     = null;
+let animating         = false;
+
+// ── Position caches ──────────────────────────────────────────────────────────
+let posLayer = {};   // original layer-based positions
+let posCluster = {}; // cluster-grouped positions
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const svg    = d3.select('#svg');
+const width  = () => document.getElementById('canvas').clientWidth;
+const height = () => document.getElementById('canvas').clientHeight;
+
+const allLayers  = [...new Set(GRAPH_DATA.nodes.map(d => d.layer))].sort((a,b)=>a-b);
+const layerNodes = {};
+GRAPH_DATA.nodes.forEach(d => {
+  if (!layerNodes[d.layer]) layerNodes[d.layer] = [];
+  layerNodes[d.layer].push(d);
+});
+const nodeLayerMap = {};
+GRAPH_DATA.nodes.forEach(d => { nodeLayerMap[d.id] = d.layer; });
+const maxFlow = d3.max(GRAPH_DATA.edges.map(e => e.abs_flow)) || 1;
+
+const tooltip = document.getElementById('tooltip');
+
+// ── Compute original layer-based positions ───────────────────────────────────
+function computeLayerPositions() {
+  const W = width(), H = height();
+  const layerX = d3.scalePoint().domain(allLayers).range([80, W-80]).padding(0.3);
+  const pos = {};
+  GRAPH_DATA.nodes.forEach(d => {
+    const group = layerNodes[d.layer];
+    const idx   = group.indexOf(d);
+    const n     = group.length;
+    const margin = 50;
+    const step   = (H - 2*margin) / Math.max(n, 1);
+    pos[d.id] = {
+      x: layerX(d.layer),
+      y: n === 1 ? H/2 : margin + idx*step + step/2
+    };
+  });
+  return pos;
+}
+
+// ── Compute cluster-grouped positions ────────────────────────────────────────
+// Each supernode gets a horizontal band based on its average layer.
+// Within the band, nodes are arranged in a compact grid.
+// Supernodes are spaced apart vertically.
+function computeClusterPositions() {
+  const W = width(), H = height();
+  const pos = {};
+
+  // Sort supernodes by their average layer (left to right flow)
+  const snInfo = snNames.map(sn => {
+    const members = SUPERNODE_MAP[sn];
+    const layers  = members.map(nid => {
+      const nd = GRAPH_DATA.nodes.find(n => n.id === nid);
+      return nd ? nd.layer : 0;
+    });
+    const avgLayer = layers.reduce((a,b)=>a+b,0) / layers.length;
+    const minLayer = Math.min(...layers);
+    const maxLayer = Math.max(...layers);
+    return { sn, members, avgLayer, minLayer, maxLayer };
+  });
+
+  snInfo.sort((a,b) => a.avgLayer - b.avgLayer);
+
+  // Assign horizontal center per supernode based on avg layer
+  const xScale = d3.scaleLinear()
+    .domain([d3.min(snInfo, d=>d.avgLayer), d3.max(snInfo, d=>d.avgLayer)])
+    .range([140, W - 140]);
+
+  // Assign vertical slots — split canvas into rows for supernodes
+  const nSN = snInfo.length;
+  const rowH = H / (nSN + 1);
+
+  snInfo.forEach((info, si) => {
+    const cx = xScale(info.avgLayer);
+    const cy = rowH * (si + 1);
+    const n  = info.members.length;
+
+    // Arrange members in a grid within the cluster region
+    const cols = Math.ceil(Math.sqrt(n * 1.8)); // wider than tall
+    const rows = Math.ceil(n / cols);
+    const spacingX = 52;
+    const spacingY = 42;
+    const startX = cx - (cols - 1) * spacingX / 2;
+    const startY = cy - (rows - 1) * spacingY / 2;
+
+    // Sort members by layer then by id for consistent ordering
+    const sorted = [...info.members].sort((a,b) => {
+      const la = nodeLayerMap[a] || 0;
+      const lb = nodeLayerMap[b] || 0;
+      if (la !== lb) return la - lb;
+      return a.localeCompare(b);
+    });
+
+    sorted.forEach((nid, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      pos[nid] = {
+        x: startX + col * spacingX,
+        y: startY + row * spacingY
+      };
+    });
+  });
+
+  return pos;
+}
+
+// ── Toggle supernodes ────────────────────────────────────────────────────────
+function toggleSupernode() {
+  supernodeActive = !supernodeActive;
+  const btn    = document.getElementById('sn-toggle');
+  const label  = document.getElementById('sn-toggle-label');
+  const leg    = document.getElementById('legend');
+  const snLeg  = document.getElementById('sn-legend');
+  const repoBtn = document.getElementById('repo-toggle');
+
+  if (supernodeActive) {
+    btn.classList.add('active');
+    label.textContent = 'HIDE SUPERNODES';
+    leg.style.display  = 'none';
+    snLeg.classList.add('visible');
+    repoBtn.disabled = false;
+  } else {
+    btn.classList.remove('active');
+    label.textContent = 'SHOW SUPERNODES';
+    leg.style.display  = 'block';
+    snLeg.classList.remove('visible');
+    repoBtn.disabled = true;
+    highlightedSN = null;
+    // If repositioned, snap back
+    if (repositioned) {
+      repositioned = false;
+      repoBtn.classList.remove('active');
+      document.getElementById('repo-toggle-label').textContent = 'REPOSITION BY CLUSTER';
+    }
+  }
+  render();
+}
+
+// ── Toggle reposition ────────────────────────────────────────────────────────
+function toggleReposition() {
+  if (!supernodeActive || animating) return;
+  repositioned = !repositioned;
+  const btn   = document.getElementById('repo-toggle');
+  const label = document.getElementById('repo-toggle-label');
+
+  if (repositioned) {
+    btn.classList.add('active');
+    label.textContent = 'RESTORE LAYERS';
+  } else {
+    btn.classList.remove('active');
+    label.textContent = 'REPOSITION BY CLUSTER';
+  }
+  animateTransition();
+}
+
+// ── Animated transition between layouts ──────────────────────────────────────
+function animateTransition() {
+  animating = true;
+  posLayer   = computeLayerPositions();
+  posCluster = computeClusterPositions();
+
+  const fromPos = repositioned ? posLayer : posCluster;
+  const toPos   = repositioned ? posCluster : posLayer;
+  const duration = 800;
+
+  // Animate nodes
+  d3.selectAll('.node')
+    .transition()
+    .duration(duration)
+    .ease(d3.easeCubicInOut)
+    .attr('transform', d => {
+      const p = toPos[d.id] || fromPos[d.id] || {x:0,y:0};
+      d.x = p.x; d.y = p.y;
+      return `translate(${p.x},${p.y})`;
+    });
+
+  // After transition, do a full re-render to update edges and hulls
+  setTimeout(() => {
+    animating = false;
+    render();
+  }, duration + 50);
+}
+
+// ── Get current positions ────────────────────────────────────────────────────
+function getCurrentPositions() {
+  if (repositioned && supernodeActive) {
+    return computeClusterPositions();
+  }
+  return computeLayerPositions();
+}
+
+// ── Build supernode legend ───────────────────────────────────────────────────
+function buildSNLegend() {
+  const container = document.getElementById('sn-legend-items');
+  container.innerHTML = '';
+  snNames.forEach(sn => {
+    const members = SUPERNODE_MAP[sn];
+    const color   = snColor[sn];
+    const div     = document.createElement('div');
+    div.className = 'sn-legend-item';
+    div.innerHTML = `
+      <span class="sn-dot" style="background:${color}"></span>
+      <span>${sn}</span>
+      <span class="sn-count">${members.length}n</span>`;
+    div.addEventListener('click', () => {
+      highlightedSN = (highlightedSN === sn) ? null : sn;
+      render();
+    });
+    container.appendChild(div);
+  });
+}
+buildSNLegend();
+
+// ── Color helpers ────────────────────────────────────────────────────────────
+const colorNodeDefault = d => {
+  if (d.type === 'embedding') return '#f59e0b';
+  if (d.type === 'logit')     return '#f43f5e';
+  return d3.interpolateRgb('#10b981', '#3d8eff')(d.node_inf);
+};
+
+const colorNodeSN = d => {
+  const sn = node2sn[d.id];
+  return sn ? snColor[sn] : '#334155';
+};
+
+// ── Convex hull per supernode ────────────────────────────────────────────────
+function computeHulls(pos) {
+  const hulls = {};
+  snNames.forEach(sn => {
+    const pts = SUPERNODE_MAP[sn]
+      .filter(nid => pos[nid])
+      .map(nid => [pos[nid].x, pos[nid].y]);
+    if (pts.length < 1) return;
+    if (pts.length === 1) {
+      const r = currentNodeSize * 2.5;
+      const [cx, cy] = pts[0];
+      hulls[sn] = `M${cx-r},${cy} A${r},${r} 0 1,0 ${cx+r},${cy} A${r},${r} 0 1,0 ${cx-r},${cy}`;
+      return;
+    }
+    if (pts.length === 2) {
+      const r = currentNodeSize * 2.2;
+      pts.push([pts[0][0]+0.1, pts[0][1]+r]);
+    }
+    try {
+      const hull = d3.polygonHull(pts);
+      if (!hull) return;
+      const centroid = d3.polygonCentroid(hull);
+      const pad = repositioned ? currentNodeSize * 3.5 : currentNodeSize * 2.8;
+      const padded = hull.map(([x, y]) => {
+        const dx = x - centroid[0], dy = y - centroid[1];
+        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        return [x + dx/dist*pad, y + dy/dist*pad];
+      });
+      hulls[sn] = `M${padded.map(p=>p.join(',')).join('L')}Z`;
+    } catch(e) {}
+  });
+  return hulls;
+}
+
+// ── Clerp label formatting ───────────────────────────────────────────────────
+function clerpLabel(d) {
+  if (d.type === 'embedding') return d.clerp.replace(/Emb:\s*"?\s*/, '').replace('"','').trim();
+  if (d.type === 'logit') return 'Austin';
+  const c = d.clerp;
+  // In repositioned mode, show more text
+  const maxLen = repositioned ? 18 : 14;
+  return c.length > maxLen ? c.slice(0, maxLen-1) + '…' : c;
+}
+
+// ── Main render ──────────────────────────────────────────────────────────────
+function render() {
+  if (animating) return;
+  svg.selectAll('*').remove();
+  const W = width(), H = height();
+  svg.attr('viewBox', `0 0 ${W} ${H}`);
+
+  const pos = getCurrentPositions();
+  GRAPH_DATA.nodes.forEach(d => {
+    if (pos[d.id]) { d.x = pos[d.id].x; d.y = pos[d.id].y; }
+  });
+
+  // ── Defs (arrowheads) ──
+  const defs = svg.append('defs');
+  [{id:'fwd',color:'#3d8eff'},{id:'bwd',color:'#f87171'},
+   {id:'neg',color:'#8b5cf6'},{id:'logit',color:'#f5a623'}].forEach(({id,color}) => {
+    defs.append('marker')
+      .attr('id',`arrow-${id}`).attr('viewBox','0 -4 8 8')
+      .attr('refX',8).attr('refY',0)
+      .attr('markerWidth',5).attr('markerHeight',5)
+      .attr('orient','auto')
+      .append('path').attr('d','M0,-4L8,0L0,4')
+      .attr('fill',color).attr('opacity',0.8);
+  });
+
+  // Also add per-supernode arrow defs for colored edges
+  snNames.forEach(sn => {
+    const c = snColor[sn];
+    defs.append('marker')
+      .attr('id',`arrow-sn-${sn}`).attr('viewBox','0 -4 8 8')
+      .attr('refX',8).attr('refY',0)
+      .attr('markerWidth',5).attr('markerHeight',5)
+      .attr('orient','auto')
+      .append('path').attr('d','M0,-4L8,0L0,4')
+      .attr('fill',c).attr('opacity',0.8);
+  });
+
+  // ── Layer guide lines (only in layer mode) ──
+  if (!repositioned) {
+    const layerX = d3.scalePoint().domain(allLayers).range([80, W-80]).padding(0.3);
+    allLayers.forEach(l => {
+      const x = layerX(l);
+      svg.append('line').attr('class','layer-line')
+        .attr('x1',x).attr('y1',22).attr('x2',x).attr('y2',H-8)
+        .attr('stroke','#1a2540').attr('stroke-width',1);
+      svg.append('text').attr('x',x).attr('y',14)
+        .attr('text-anchor','middle').attr('fill','#253550')
+        .attr('font-size',9).attr('font-family','JetBrains Mono')
+        .text(l===0?'EMB':l===27?'LOGIT':`L${l}`);
+    });
+  }
+
+  // ── Supernode hulls ──
+  if (supernodeActive) {
+    const hulls  = computeHulls(pos);
+    const hullG  = svg.append('g').attr('id','hulls');
+    const labelG = svg.append('g').attr('id','hull-labels');
+
+    snNames.forEach(sn => {
+      if (!hulls[sn]) return;
+      const color = snColor[sn];
+      const dim   = highlightedSN && highlightedSN !== sn;
+
+      hullG.append('path')
+        .attr('class', 'sn-hull')
+        .attr('d', hulls[sn])
+        .attr('fill', color)
+        .attr('stroke', color)
+        .attr('fill-opacity', dim ? 0.01 : (repositioned ? 0.09 : 0.07))
+        .attr('stroke-opacity', dim ? 0.08 : (repositioned ? 0.55 : 0.38));
+
+      const members = SUPERNODE_MAP[sn].filter(nid => pos[nid]);
+      if (members.length === 0) return;
+      const cx = members.reduce((s,n)=>s+pos[n].x,0)/members.length;
+      const minY = Math.min(...members.map(n=>pos[n].y));
+      const cy = minY - (repositioned ? currentNodeSize*4.5 : currentNodeSize*3.5);
+
+      labelG.append('text')
+        .attr('class','sn-label visible')
+        .attr('x', cx).attr('y', cy)
+        .attr('text-anchor','middle')
+        .attr('fill', color)
+        .attr('opacity', dim ? 0.1 : (repositioned ? 0.7 : 0.5))
+        .attr('font-size', repositioned ? '11px' : '8px')
+        .text(sn);
+    });
+  }
+
+  // ── Edges ──
+  const edgeG      = svg.append('g').attr('id','edges-regular');
+  const logitEdgeG = svg.append('g').attr('id','edges-logit');
+
+  GRAPH_DATA.edges.forEach(e => {
+    const src = pos[e.source];
+    const tgt = pos[e.target];
+    if (!src || !tgt) return;
+
+    const isToLogit = e.to_logit === true;
+    const isNeg     = e.flow < 0;
+    const srcL      = nodeLayerMap[e.source] || 0;
+    const tgtL      = nodeLayerMap[e.target] || 0;
+    const isBwd     = srcL > tgtL && !isToLogit;
+
+    if (!isToLogit && e.abs_flow < currentFlowThresh) return;
+
+    const strokeW = Math.max(0.3, (e.abs_flow / maxFlow) * 5);
+    const opacity = isToLogit
+      ? Math.max(0.12, (e.abs_flow / maxFlow) * currentOpacity * 3)
+      : currentOpacity * (isNeg ? 0.4 : 1.0);
+
+    let color, arrowId;
+    if (supernodeActive && !isToLogit) {
+      const sn = node2sn[e.source];
+      color   = sn ? snColor[sn] : '#3d8eff';
+      arrowId = sn ? `sn-${sn}` : 'fwd';
+    } else if (supernodeActive && isToLogit) {
+      // Color logit edges by source supernode too
+      const sn = node2sn[e.source];
+      color   = sn ? snColor[sn] : '#f5a623';
+      arrowId = sn ? `sn-${sn}` : 'logit';
+    } else {
+      color   = isToLogit ? '#f5a623' : isNeg ? '#8b5cf6' : isBwd ? '#f87171' : '#3d8eff';
+      arrowId = isToLogit ? 'logit'   : isNeg ? 'neg'     : isBwd ? 'bwd'     : 'fwd';
+    }
+
+    // Dim edges not involving highlighted SN
+    let finalOpacity = opacity;
+    if (highlightedSN) {
+      const srcSN = node2sn[e.source];
+      const tgtSN = node2sn[e.target];
+      const involved = srcSN === highlightedSN || tgtSN === highlightedSN;
+      finalOpacity = involved ? Math.min(opacity * 2, 0.9) : opacity * 0.08;
+    }
+
+    const dx   = tgt.x - src.x;
+    const dy   = tgt.y - src.y;
+    const dist = Math.sqrt(dx*dx + dy*dy) + 1;
+    const curv = isToLogit ? 0 : (isBwd ? -35 : 25);
+    const cx2  = (src.x+tgt.x)/2 - dy*curv/dist;
+    const cy2  = (src.y+tgt.y)/2 + dx*curv/dist;
+
+    const g = isToLogit ? logitEdgeG : edgeG;
+    g.append('path')
+      .attr('class','link')
+      .datum(e)
+      .attr('d',`M${src.x},${src.y} Q${cx2},${cy2} ${tgt.x},${tgt.y}`)
+      .attr('stroke', color)
+      .attr('stroke-width', strokeW)
+      .attr('opacity', finalOpacity)
+      .attr('marker-end',`url(#arrow-${arrowId})`);
+  });
+
+  // ── Nodes ──
+  const nodeG   = svg.append('g').attr('id','nodes');
+  const nodeEls = nodeG.selectAll('.node')
+    .data(GRAPH_DATA.nodes).enter()
+    .append('g').attr('class','node')
+    .attr('transform', d => `translate(${d.x},${d.y})`)
+    .style('cursor','pointer')
+    .on('click',      (ev,d) => showNodeInfo(d))
+    .on('mouseenter', (ev,d) => { highlightNode(d, true); showTooltip(ev, d); })
+    .on('mousemove',  (ev,d) => moveTooltip(ev))
+    .on('mouseleave', (ev,d) => { highlightNode(d, false); hideTooltip(); });
+
+  nodeEls.append('circle')
+    .attr('r', d => {
+      const b = currentNodeSize;
+      if (d.type==='embedding') return b*1.15;
+      if (d.type==='logit')     return b*1.65;
+      return b*(0.5 + 0.9*d.node_inf);
+    })
+    .attr('fill', d => supernodeActive ? colorNodeSN(d) : colorNodeDefault(d))
+    .attr('stroke', d => {
+      if (d.type==='logit') return '#f5a623';
+      if (supernodeActive) {
+        const sn = node2sn[d.id];
+        return sn ? snColor[sn] : 'none';
+      }
+      return 'none';
+    })
+    .attr('stroke-width', d => d.type==='logit' ? 2 : (supernodeActive ? 0.8 : 0))
+    .attr('opacity', d => {
+      if (highlightedSN) {
+        const snMembers = new Set(SUPERNODE_MAP[highlightedSN] || []);
+        return snMembers.has(d.id) ? 1.0 : 0.15;
+      }
+      return d.type==='transcoder' ? 0.82 : 1.0;
+    });
+
+  // Node labels — show clerp
+  nodeEls.append('text')
+    .attr('dy', d => {
+      const r = currentNodeSize*(d.type==='logit' ? 1.65 : d.type==='embedding' ? 1.15 : 0.5+0.9*d.node_inf);
+      return -(r+4);
+    })
+    .attr('text-anchor','middle')
+    .attr('fill', d => {
+      if (supernodeActive) {
+        const sn = node2sn[d.id];
+        return sn ? snColor[sn] : '#6a7f9a';
+      }
+      return '#6a7f9a';
+    })
+    .attr('font-size', repositioned ? 8 : 7)
+    .attr('opacity', d => {
+      if (highlightedSN) {
+        const snMembers = new Set(SUPERNODE_MAP[highlightedSN] || []);
+        return snMembers.has(d.id) ? 0.9 : 0.1;
+      }
+      return 0.8;
+    })
+    .text(d => clerpLabel(d));
+
+  // In repositioned mode, also show layer badge below node
+  if (repositioned) {
+    nodeEls.append('text')
+      .attr('dy', d => {
+        const r = currentNodeSize*(d.type==='logit' ? 1.65 : d.type==='embedding' ? 1.15 : 0.5+0.9*d.node_inf);
+        return r + 12;
+      })
+      .attr('text-anchor','middle')
+      .attr('fill', '#3a4a60')
+      .attr('font-size', 7)
+      .attr('opacity', 0.6)
+      .text(d => d.layer === 0 ? 'EMB' : d.layer === 27 ? 'L27' : `L${d.layer}`);
+  }
+}
+
+// ── Tooltip ──────────────────────────────────────────────────────────────────
+function showTooltip(ev, d) {
+  const sn = node2sn[d.id];
+  const snText = sn ? ` [${sn}]` : '';
+  tooltip.textContent = `${d.clerp}${snText}  —  L${d.layer}`;
+  tooltip.classList.add('show');
+  moveTooltip(ev);
+}
+
+function moveTooltip(ev) {
+  const canvasRect = document.getElementById('canvas').getBoundingClientRect();
+  tooltip.style.left = (ev.clientX - canvasRect.left + 12) + 'px';
+  tooltip.style.top  = (ev.clientY - canvasRect.top - 28) + 'px';
+}
+
+function hideTooltip() {
+  tooltip.classList.remove('show');
+}
+
+// ── Highlight on hover ───────────────────────────────────────────────────────
+function highlightNode(d, on) {
+  d3.selectAll('.link').attr('opacity', function(e) {
+    if (!e) return on ? 0.02 : currentOpacity;
+    const isLogit   = e.to_logit === true;
+    const baseLogit = Math.max(0.12, (e.abs_flow/maxFlow)*currentOpacity*3);
+    if (!on) {
+      if (highlightedSN) {
+        const srcSN = node2sn[e.source];
+        const tgtSN = node2sn[e.target];
+        const involved = srcSN === highlightedSN || tgtSN === highlightedSN;
+        return involved ? (isLogit ? baseLogit*2 : currentOpacity*1.5) : currentOpacity*0.08;
+      }
+      return isLogit ? baseLogit : currentOpacity;
+    }
+    const connected = e.source===d.id || e.target===d.id;
+    return connected ? 0.92 : (isLogit ? 0.06 : 0.02);
+  });
+}
+
+// ── Node info panel ──────────────────────────────────────────────────────────
+function showNodeInfo(d) {
+  const panel    = document.getElementById('node-info');
+  const maxAct   = Math.max(...GRAPH_DATA.nodes.map(n => n.activation));
+  const outEdges = GRAPH_DATA.edges.filter(e => e.source===d.id);
+  const inEdges  = GRAPH_DATA.edges.filter(e => e.target===d.id);
+  const toLogit  = outEdges.find(e => e.to_logit);
+  const fl       = toLogit ? toLogit.flow : null;
+  const sn       = node2sn[d.id];
+  const snCol    = sn ? snColor[sn] : null;
+
+  const snBadge = sn
+    ? `<div class="info-sn-badge" style="background:${snCol}22;color:${snCol};border:1px solid ${snCol}55">${sn}</div>`
+    : '';
+
+  panel.innerHTML = `
+    <h3>Node inspector</h3>
+    ${snBadge}
+    <div class="info-clerp">${d.clerp}</div>
+    <div class="info-row"><span class="info-label">ID</span><span class="info-value" style="font-size:8px">${d.id}</span></div>
+    <div class="info-row"><span class="info-label">Layer</span><span class="info-value">${d.layer===0?'EMB':d.layer===27?'LOGIT':d.layer}</span></div>
+    <div class="info-row"><span class="info-label">ctx_idx</span><span class="info-value">${d.ctx_idx}</span></div>
+    <div class="bar-container">
+      <div class="bar-label">Activation: ${d.activation.toFixed(2)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(d.activation/maxAct*100).toFixed(1)}%;background:#f59e0b"></div></div>
+    </div>
+    <div class="bar-container">
+      <div class="bar-label">Influence: ${d.influence.toFixed(4)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(d.influence*100).toFixed(1)}%;background:#f5a623"></div></div>
+    </div>
+    <div class="bar-container">
+      <div class="bar-label">Flow→logit: ${fl!==null?fl.toFixed(2):'n/a'}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${fl!==null?Math.min(100,Math.abs(fl)/40*100).toFixed(1):0}%;background:#f43f5e"></div></div>
+    </div>
+    <div class="bar-container">
+      <div class="bar-label">node_inf: ${d.node_inf.toFixed(4)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(d.node_inf*100).toFixed(1)}%;background:#3d8eff"></div></div>
+    </div>
+    <div class="bar-container">
+      <div class="bar-label">node_rel: ${d.node_rel.toFixed(4)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(d.node_rel*100).toFixed(1)}%;background:#10b981"></div></div>
+    </div>
+    <div style="margin-top:8px;font-size:9px;color:var(--dim)">${outEdges.length} out &middot; ${inEdges.length} in</div>`;
+}
+
+// ── Slider controls ──────────────────────────────────────────────────────────
+document.getElementById('flow-thresh').addEventListener('input', function() {
+  currentFlowThresh = +this.value;
+  document.getElementById('flow-val').textContent = this.value;
+  render();
+});
+document.getElementById('node-size').addEventListener('input', function() {
+  currentNodeSize = +this.value;
+  document.getElementById('size-val').textContent = this.value;
+  render();
+});
+document.getElementById('edge-opacity').addEventListener('input', function() {
+  currentOpacity = this.value/100;
+  document.getElementById('opacity-val').textContent = this.value;
+  render();
+});
+window.addEventListener('resize', render);
+
+render();
+</script>
+</body>
+</html>

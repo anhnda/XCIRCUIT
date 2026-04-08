@@ -1,4 +1,6 @@
- python structure_grouping.py --file subgraph/austin_plt.pt --target-k 4 --max-layer-span 10
+python structure_grouping.py --file subgraph/austin_clt.pt --target-k 4 --max-layer-span 10
+python visualize_circuit_sp_rep.py --file subgraph/austin_clt.pt --supernode supernode_map.json
+open circuit_sp_rep.html
 
 python visualize_circuit_supernode.py \
     --file subgraph/austin_plt.pt \
