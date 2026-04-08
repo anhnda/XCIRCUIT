@@ -51,19 +51,18 @@ def parse_activation(attr_node):
 def load_snapshot(path):
     return torch.load(path, map_location='cpu', weights_only=False)
 
-
 def prepare_graph_data(raw):
     kept_ids  = raw['kept_ids']
-    adj       = raw['pruned_adj'].clone().float()
+    adj       = raw['pruned_adj'].clone().float()   # real edges only, untouched
     attr      = raw['attr']
     node_inf  = raw['node_inf'].float()
     node_rel  = raw['node_rel'].float()
     logit_idx = len(kept_ids) - 1
 
-    for i, nid in enumerate(kept_ids):
-        inf = attr[nid].get('influence')
-        if inf is not None:
-            adj[i, logit_idx] = float(inf)
+    # ── REMOVED: influence injection into adj ─────────────────────────────────
+    # Influence is attribution, not a real circuit connection.
+    # Stored separately as inf_to_logit on each node instead.
+    # ─────────────────────────────────────────────────────────────────────────
 
     layers = [parse_layer(n) for n in kept_ids]
     acts   = [parse_activation(attr[n]) for n in kept_ids]
@@ -78,16 +77,17 @@ def prepare_graph_data(raw):
         elif is_log: ntype = 'logit'
         else:        ntype = 'transcoder'
         nodes.append({
-            'id':         nid,
-            'idx':        i,
-            'layer':      layer,
-            'clerp':      a['clerp'],
-            'activation': acts[i],
-            'influence':  float(a.get('influence') or 0),
-            'node_inf':   float(node_inf[i]),
-            'node_rel':   float(node_rel[i]),
-            'type':       ntype,
-            'ctx_idx':    a.get('ctx_idx', 0),
+            'id':           nid,
+            'idx':          i,
+            'layer':        layer,
+            'clerp':        a['clerp'],
+            'activation':   acts[i],
+            'influence':    float(a.get('influence') or 0),
+            'inf_to_logit': float(a.get('influence') or 0),  # ← attribution, not edge
+            'node_inf':     float(node_inf[i]),
+            'node_rel':     float(node_rel[i]),
+            'type':         ntype,
+            'ctx_idx':      a.get('ctx_idx', 0),
         })
 
     act_tensor = torch.tensor(acts, dtype=torch.float32)
@@ -112,9 +112,8 @@ def prepare_graph_data(raw):
             })
 
     print(f"  Total edges:    {len(edges)}")
-    print(f"  Edges to logit: {sum(1 for e in edges if e['to_logit'])}")
+    print(f"  Edges to logit (real circuit only): {sum(1 for e in edges if e['to_logit'])}")
     return {'nodes': nodes, 'edges': edges}
-
 
 HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en">
@@ -497,7 +496,7 @@ svg { width:100%; height:100%; }
       <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div>Transcoder low inf</div>
       <div class="legend-item"><div class="legend-dot" style="background:#3d8eff"></div>Transcoder high inf</div>
       <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>Logit output</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#f5a623"></div>Edge &rarr; Logit</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f5a623"></div>Node size = influence attribution</div>
       <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div>Suppression (&minus;)</div>
     </div>
 
@@ -1096,8 +1095,7 @@ function showNodeInfo(d) {
   const maxAct   = Math.max(...GRAPH_DATA.nodes.map(n => n.activation));
   const outEdges = GRAPH_DATA.edges.filter(e => e.source===d.id);
   const inEdges  = GRAPH_DATA.edges.filter(e => e.target===d.id);
-  const toLogit  = outEdges.find(e => e.to_logit);
-  const fl       = toLogit ? toLogit.flow : null;
+  const fl = d.inf_to_logit || null;
   const sn       = node2sn[d.id];
   const snCol    = sn ? snColor[sn] : null;
 
@@ -1121,7 +1119,7 @@ function showNodeInfo(d) {
       <div class="bar-track"><div class="bar-fill" style="width:${(d.influence*100).toFixed(1)}%;background:#f5a623"></div></div>
     </div>
     <div class="bar-container">
-      <div class="bar-label">Flow→logit: ${fl!==null?fl.toFixed(2):'n/a'}</div>
+    <div class="bar-label">Attribution→logit: ${fl!==null?fl.toFixed(4):'n/a'}</div>
       <div class="bar-track"><div class="bar-fill" style="width:${fl!==null?Math.min(100,Math.abs(fl)/40*100).toFixed(1):0}%;background:#f43f5e"></div></div>
     </div>
     <div class="bar-container">

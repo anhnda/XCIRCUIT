@@ -173,7 +173,7 @@ def score_k(final_supernodes: dict,
     else:
         dag_safety = 1.0
 
-    # ── 3. Flow balance (entropy of flow distribution into logit)
+    # ── 3. Flow balance
     sn_flow = flow_result['sn_flow']
     flow_vals = []
     for src in final_supernodes:
@@ -183,8 +183,20 @@ def score_k(final_supernodes: dict,
         flow_vals.append(max(val, 0.0))
 
     total_flow = sum(flow_vals) + 1e-8
-    probs = np.array([v / total_flow for v in flow_vals])
-    probs = probs[probs > 1e-10]  # drop zero-flow supernodes
+
+    # ── NEW: fall back to attribution distribution if no structural flow to logit
+    if total_flow < 1e-6:
+        attr_vals = [
+            max(flow_result['sn_attribution'].get(src, 0.0), 0.0)
+            for src in final_supernodes
+            if src != 'SN_LOGIT'
+        ]
+        total_attr = sum(attr_vals) + 1e-8
+        probs = np.array([v / total_attr for v in attr_vals])
+    else:
+        probs = np.array([v / total_flow for v in flow_vals])
+
+    probs = probs[probs > 1e-10]
 
     if len(probs) > 1:
         entropy = -np.sum(probs * np.log(probs + 1e-10))
@@ -192,7 +204,6 @@ def score_k(final_supernodes: dict,
         flow_balance = entropy / (max_entropy + 1e-8)
     else:
         flow_balance = 0.0
-
     # ── 4. Size score: prefer k near sqrt(N_middle_nodes)
 
     # Better — penalise DAG over-splitting too
@@ -289,8 +300,9 @@ def find_best_k(data: dict,
 
     # ── Step 2: Sweep
     print(f'\n── Step 2: Scoring k = {k_min}..{k_max} ──')
+    # In find_best_k, replace the header line:
     print(f'  {"k":>3}  {"n_sn":>4}  {"intra":>6}  {"dag":>5}  '
-          f'{"flow":>5}  {"size":>5}  {"TOTAL":>6}  {"warns":>5}')
+          f'{"flow/attr":>9}  {"size":>5}  {"TOTAL":>6}  {"warns":>5}')
     print(f'  {"─"*50}')
 
     results = {}

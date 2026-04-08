@@ -77,33 +77,44 @@ def load_snapshot(path: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # 1.  PREPARE GRAPH DATA  (mirrors visualize_circuit.py::prepare_graph_data)
 # ─────────────────────────────────────────────────────────────────────────────
-
 def prepare_graph_data(raw: dict) -> dict:
     """
     Returns:
-        kept_ids   : list[str]           node IDs in order
-        adj        : torch.Tensor (N,N)  weighted adjacency (float32)
-        act_values : dict[str, float]    activation per node
-        inf_values : dict[str, float]    influence (→logit weight) per node
-        clerp      : dict[str, str]      human label per node
-        layers     : list[int]           layer index per node
-        node_inf   : torch.Tensor (N,)   normalised node influence scores
+        kept_ids     : list[str]           node IDs in order
+        adj          : torch.Tensor (N,N)  weighted adjacency (float32)
+                       NOTE: logit column is NOT overwritten with influence.
+                       adj reflects only real circuit connections (pruned_adj).
+        act_values   : dict[str, float]    activation per node
+        inf_values   : dict[str, float]    influence (→logit weight) per node
+        inf_to_logit : dict[str, float]    direct influence score to logit
+                       (node attribute — NOT injected into adj)
+                       Use this for node sizing/coloring in visualizer,
+                       NOT as an edge. Represents attribution strength,
+                       not a real architectural connection.
+        clerp        : dict[str, str]      human label per node
+        layers       : list[int]           layer index per node
+        node_inf     : torch.Tensor (N,)   normalised node influence scores
     """
     kept_ids  = raw['kept_ids']
-    adj       = raw['pruned_adj'].clone().float()
+    adj       = raw['pruned_adj'].clone().float()   # real edges only, untouched
     attr      = raw['attr']
     logit_idx = len(kept_ids) - 1
 
-    # Inject direct influence weights into logit column
-    for i, nid in enumerate(kept_ids):
-        inf = attr[nid].get('influence')
-        if inf is not None:
-            adj[i, logit_idx] = float(inf)
+    # ── REMOVED: influence injection into adj logit column ───────────────────
+    # Previously: adj[i, logit_idx] = inf  ← mixed attribution into structure
+    # Now: stored separately as inf_to_logit, rendered as node property
+    # ─────────────────────────────────────────────────────────────────────────
 
     layers     = [parse_layer(n) for n in kept_ids]
     act_values = {n: parse_activation(attr[n]) for n in kept_ids}
     inf_values = {n: parse_influence(attr[n])  for n in kept_ids}
     clerp      = {n: attr[n].get('clerp', '')  for n in kept_ids}
+
+    # Influence to logit: attribution score, separate from adj
+    inf_to_logit = {
+        nid: float(attr[nid].get('influence') or 0.0)
+        for nid in kept_ids
+    }
 
     # node_inf from raw if present, else fall back to influence_values
     if 'node_inf' in raw:
@@ -113,16 +124,16 @@ def prepare_graph_data(raw: dict) -> dict:
         node_inf = ni / (ni.max() + 1e-8)
 
     return dict(
-        kept_ids   = kept_ids,
-        adj        = adj,
-        act_values = act_values,
-        inf_values = inf_values,
-        clerp      = clerp,
-        layers     = layers,
-        node_inf   = node_inf,
-        logit_idx  = logit_idx,
+        kept_ids     = kept_ids,
+        adj          = adj,
+        act_values   = act_values,
+        inf_values   = inf_values,
+        inf_to_logit = inf_to_logit,   # ← new, use for node sizing
+        clerp        = clerp,
+        layers       = layers,
+        node_inf     = node_inf,
+        logit_idx    = logit_idx,
     )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2.  SIMILARITY MATRIX
@@ -365,7 +376,38 @@ def enforce_dag(raw_clusters: dict,
 
     # Sort supernodes by their minimum layer (topological order)
     final.sort(key=lambda m: min(layers[n] for n in m))
-
+    # Post-hoc interleave resolution: split any cluster whose layer range
+    # overlaps (interleaves) with another. Repeat until stable.
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(final)):
+            for j in range(i + 1, len(final)):
+                lo_i = min(layers[n] for n in final[i])
+                hi_i = max(layers[n] for n in final[i])
+                lo_j = min(layers[n] for n in final[j])
+                hi_j = max(layers[n] for n in final[j])
+                # Interleave: lo_i < lo_j < hi_i  OR  lo_j < lo_i < hi_j
+                if (lo_i < lo_j < hi_i) or (lo_j < lo_i < hi_j):
+                    # Split the cluster with the larger span
+                    if (hi_i - lo_i) >= (hi_j - lo_j):
+                        victim, other = i, j
+                    else:
+                        victim, other = j, i
+                    lo_v = min(layers[n] for n in final[victim])
+                    hi_v = max(layers[n] for n in final[victim])
+                    # Split victim at the layer of the other cluster's lower bound
+                    split_layer = min(layers[n] for n in final[other])
+                    lower = [n for n in final[victim] if layers[n] < split_layer]
+                    upper = [n for n in final[victim] if layers[n] >= split_layer]
+                    if lower and upper:
+                        final[victim] = lower
+                        final.append(upper)
+                        final.sort(key=lambda m: min(layers[n] for n in m))
+                        changed = True
+                        break  # restart outer loop
+            if changed:
+                break
     final_supernodes = {}
     for idx, members in enumerate(final):
         lo = min(layers[n] for n in members)
@@ -469,31 +511,136 @@ def evaluate_grouping(final_supernodes: dict,
 # ─────────────────────────────────────────────────────────────────────────────
 # 7.  SURROGATE FLOW VERIFICATION
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# 7.  FLOW MEASUREMENT
+# ─────────────────────────────────────────────────────────────────────────────
 
-def compute_surrogate_flow(final_supernodes: dict, data: dict) -> dict:
+def compute_flow_to_logit(data: dict, max_hops: int = 6) -> dict:
     """
-    Verify that the surrogate graph (supernodes) preserves total flow
-    relative to the original graph.
+    Compute total multi-hop flow from each node to the logit node,
+    following real edges in pruned_adj only (no influence injection).
 
-    flow_matrix[i,j] = act[i] * adj[i,j]
-    supernode_flow[A→B] = Σ_{i∈A, j∈B} flow_matrix[i,j]
+    Flow semantics:
+        F[i,j]       = act_norm[i] * adj[i,j]   (flow i sends to j)
+        1-hop reach  = F[:, logit]
+        2-hop reach  = (F @ F)[:, logit]         act[k] re-weighted via F[k,j]
+        total        = Σ_{hop=1..max_hops} (F^hop)[:, logit]
+
+    Why F^n works:
+        (F@F)[i,j] = Σ_k F[i,k]*F[k,j]
+                   = Σ_k act[i]*adj[i,k] * act[k]*adj[k,j]
+        Each hop naturally re-weights by intermediate node activation. ✓
+
+    Returns:
+        dict with:
+            reach        : torch.Tensor (N,)  total flow each node sends to logit
+            reach_by_hop : list[tensor]       per-hop breakdown
+            node_map     : dict nid → float   reach value per node
+            total        : float              sum of all reach (= orig_to_logit)
     """
     kept_ids   = data['kept_ids']
     adj        = data['adj']
     act_values = data['act_values']
+    logit_idx  = data['logit_idx']
+    N          = len(kept_ids)
 
-    act = torch.tensor([act_values[n] for n in kept_ids], dtype=torch.float32)
-    flow_matrix = act.unsqueeze(1) * adj      # (N, N)
+    act = torch.tensor(
+        [act_values[n] for n in kept_ids],
+        dtype=torch.float32
+    )
 
-    logit_idx   = data['logit_idx']
-    orig_to_logit = flow_matrix[:, logit_idx].sum().item()
+    # Normalise activation to prevent numerical overflow across hops
+    # (activations can be up to ~116, and F^6 would explode without this)
+    act_norm = act / (act.max() + 1e-8)
 
-    id2idx = {nid: i for i, nid in enumerate(kept_ids)}
+    # F[i,j] = act_norm[i] * adj[i,j]
+    F = act_norm.unsqueeze(1) * adj   # (N, N)
 
-    sn_idx = {sn: [id2idx[n] for n in members if n in id2idx]
-              for sn, members in final_supernodes.items()}
+    reach        = torch.zeros(N)
+    reach_by_hop = []
+    current      = F.clone()
 
-    sn_names = list(final_supernodes.keys())
+    for hop in range(max_hops):
+        hop_reach = current[:, logit_idx]
+        reach    += hop_reach
+        reach_by_hop.append(hop_reach.clone())
+
+        if hop < max_hops - 1:
+            current = current @ F   # propagate one more hop
+
+    node_map = {nid: reach[i].item() for i, nid in enumerate(kept_ids)}
+
+    return dict(
+        reach        = reach,
+        reach_by_hop = reach_by_hop,
+        node_map     = node_map,
+        total        = reach.sum().item(),
+    )
+
+
+def compute_surrogate_flow(final_supernodes: dict, data: dict,
+                           max_hops: int = 6) -> dict:
+    """
+    Two-part flow measurement:
+
+    STRUCTURAL FLOW (multi-hop, real edges only):
+        Uses compute_flow_to_logit() — traces actual circuit paths.
+        reach[i] = total normalised flow node i sends to logit across all paths.
+        Aggregated per supernode.
+
+    ATTRIBUTION SUMMARY (causal, precomputed):
+        Uses inf_to_logit — the influence score from circuit extraction.
+        Represents total causal effect of each node on the logit,
+        computed externally (e.g. activation patching).
+        Aggregated per supernode.
+
+    Both are reported separately in print_report.
+    """
+    kept_ids   = data['kept_ids']
+    logit_idx  = data['logit_idx']
+    logit_id   = kept_ids[logit_idx]
+    inf_to_logit = data.get('inf_to_logit', {})
+
+    # ── Structural flow ───────────────────────────────────────────────────────
+    flow_result  = compute_flow_to_logit(data, max_hops=max_hops)
+    node_map     = flow_result['node_map']
+
+    orig_to_logit = sum(
+        v for nid, v in node_map.items() if nid != logit_id
+    )
+
+    sn_structural: dict[str, float] = {}
+    for sn, members in final_supernodes.items():
+        sn_structural[sn] = sum(
+            node_map.get(n, 0.0) for n in members if n != logit_id
+        )
+
+    surr_to_logit = sum(
+        v for sn, v in sn_structural.items() if sn != 'SN_LOGIT'
+    )
+
+    ratio = surr_to_logit / (orig_to_logit + 1e-8)
+
+    # ── Attribution summary ───────────────────────────────────────────────────
+    sn_attribution: dict[str, float] = {}
+    for sn, members in final_supernodes.items():
+        sn_attribution[sn] = sum(
+            inf_to_logit.get(n, 0.0) for n in members
+        )
+
+    total_attr = sum(sn_attribution.values()) + 1e-8
+
+    # ── Supernode-level structural flow matrix (SN_A → SN_B) ─────────────────
+    adj        = data['adj']
+    act_values = data['act_values']
+    act        = torch.tensor(
+        [act_values[n] for n in kept_ids], dtype=torch.float32
+    )
+    flow_matrix = act.unsqueeze(1) * adj   # direct flow matrix (not normalised)
+    id2idx      = {nid: i for i, nid in enumerate(kept_ids)}
+    sn_idx      = {sn: [id2idx[n] for n in members if n in id2idx]
+                   for sn, members in final_supernodes.items()}
+    sn_names    = list(final_supernodes.keys())
 
     sn_flow: dict[str, dict[str, float]] = {}
     for src in sn_names:
@@ -502,28 +649,24 @@ def compute_surrogate_flow(final_supernodes: dict, data: dict) -> dict:
             if src == tgt:
                 sn_flow[src][tgt] = 0.0
                 continue
-            total = sum(
+            sn_flow[src][tgt] = sum(
                 flow_matrix[i, j].item()
                 for i in sn_idx[src]
                 for j in sn_idx[tgt]
             )
-            sn_flow[src][tgt] = total
-
-    surr_to_logit = sum(
-        sn_flow[src].get('SN_LOGIT', 0.0)
-        for src in sn_names if src != 'SN_LOGIT'
-    )
-
-    ratio = surr_to_logit / (orig_to_logit + 1e-8)
 
     return dict(
+        # structural
         orig_to_logit  = orig_to_logit,
         surr_to_logit  = surr_to_logit,
         ratio          = ratio,
-        sn_flow        = sn_flow,
+        sn_structural  = sn_structural,   # per-SN multi-hop reach
+        sn_flow        = sn_flow,         # direct SN→SN flow matrix
+        node_map       = node_map,        # per-node reach
+        # attribution
+        sn_attribution = sn_attribution,  # per-SN inf_to_logit sum
+        total_attr     = total_attr,
     )
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 8.  PRINT REPORT
 # ─────────────────────────────────────────────────────────────────────────────
@@ -571,27 +714,42 @@ def print_report(final_supernodes: dict,
         print(f'  └{"─"*60}')
 
     print(f'\n{SEP}')
-    print('  FLOW PRESERVATION')
+    print('  FLOW PRESERVATION  (multi-hop structural, real edges only)')
     print(SEP)
     fr = flow_result
-    print(f"  Original  flow → logit : {fr['orig_to_logit']:.4f}")
-    print(f"  Surrogate flow → logit : {fr['surr_to_logit']:.4f}")
-    print(f"  Preservation ratio     : {fr['ratio']:.4f}")
-    if 0.8 <= fr['ratio'] <= 1.2:
+    print(f"  Original  reach → logit : {fr['orig_to_logit']:.4f}  (normalised)")
+    print(f"  Surrogate reach → logit : {fr['surr_to_logit']:.4f}")
+    print(f"  Preservation ratio      : {fr['ratio']:.4f}")
+    # Replace the three-branch if/elif/else on ratio with:
+    if fr['orig_to_logit'] < 1e-6:
+        print('  [INFO] No structural edges to logit in adj — attribution-only graph.')
+        print('         Flow ratio check skipped. See ATTRIBUTION SUMMARY below.')
+    elif 0.8 <= fr['ratio'] <= 1.2:
         print('  [PASS] Within 20% tolerance.')
-    elif 0.6 <= fr['ratio'] < 0.8:
-        print(f"  [WARN] Loses ~{(1-fr['ratio'])*100:.1f}% of flow.")
+    elif 0.5 <= fr['ratio'] < 0.8:
+        print(f"  [WARN] Surrogate captures {fr['ratio'] * 100:.1f}% of total reach.")
     else:
-        print(f"  [FAIL] Ratio {fr['ratio']:.3f} deviates significantly.")
+        print(f"  [FAIL] Ratio {fr['ratio']:.3f} — supernode graph may be too coarse.")
 
-    print(f'\n  Flow into SN_LOGIT (by source):')
-    total_surr = fr['surr_to_logit'] + 1e-8
-    for src, fmap in fr['sn_flow'].items():
-        if src == 'SN_LOGIT': continue
-        val = fmap.get('SN_LOGIT', 0.0)
-        pct = val / total_surr * 100
+    print(f'\n  Structural reach → logit (by supernode):')
+    total_struct = fr['surr_to_logit'] + 1e-8
+    for sn, val in fr['sn_structural'].items():
+        if sn == 'SN_LOGIT': continue
+        pct = val / total_struct * 100
         bar = '█' * int(pct / 2)
-        print(f"    {src:<22} {val:>8.3f}  ({pct:>5.1f}%)  {bar}")
+        print(f"    {sn:<22} {val:>8.4f}  ({pct:>5.1f}%)  {bar}")
+
+    print(f'\n{SEP}')
+    print('  ATTRIBUTION SUMMARY  (causal influence scores, precomputed)')
+    print(SEP)
+    print(f'  (Captures total causal effect per supernode on logit,')
+    print(f'   independent of path — NOT an edge, a node property.)\n')
+    total_attr = fr['total_attr']
+    for sn, val in fr['sn_attribution'].items():
+        if sn == 'SN_LOGIT': continue
+        pct = val / total_attr * 100
+        bar = '█' * int(pct / 2)
+        print(f"    {sn:<22} {val:>8.4f}  ({pct:>5.1f}%)  {bar}")
 
     print(f'\n{SEP}')
     print('  DAG SAFETY CHECK')
@@ -741,9 +899,9 @@ def build_synthetic_snapshot() -> dict:
     id2i      = {nid: i for i, nid in enumerate(kept_ids)}
 
     # Real influence weights → logit column
-    for nid, inf in inf_v.items():
-        if inf is not None:
-            adj[id2i[nid], logit_idx] = inf
+    # for nid, inf in inf_v.items():
+    #     if inf is not None:
+    #         adj[id2i[nid], logit_idx] = inf
 
     # Synthetic inter-layer edges
     def get_layer(nid):
