@@ -244,38 +244,10 @@ def cluster_middle_nodes(data: dict,
 # ─────────────────────────────────────────────────────────────────────────────
 # 3b. SPECTRAL CLUSTERING WITH FIXED TARGET-K
 # ─────────────────────────────────────────────────────────────────────────────
-
 def cluster_with_target_k(data: dict,
                            S: torch.Tensor,
                            target_k: int = 7,
                            max_layer_span: int = 4) -> dict:
-    """
-    Spectral clustering that forces exactly `target_k` middle supernodes.
-
-    Use this instead of cluster_middle_nodes() when you know the desired
-    number of supernodes (e.g. < 10) and the similarity signal is too weak
-    for threshold-based hierarchical clustering to produce compact groups.
-
-    Unlike hierarchical clustering, spectral clustering uses the full
-    eigenstructure of the similarity matrix, so it finds meaningful
-    partitions even when pairwise similarities are uniformly low.
-
-    Steps:
-      1. Extract S_mid  (middle nodes only, symmetrised)
-      2. Spectral clustering with affinity='precomputed' → labels
-      3. enforce_dag() to split any layer-spanning clusters
-
-    Args:
-        data           : prepared graph data dict
-        S              : (N,N) similarity matrix from compute_similarity()
-        target_k       : desired number of middle supernodes BEFORE DAG
-                         enforcement (actual count may be slightly higher
-                         if DAG splitting triggers)
-        max_layer_span : passed through to enforce_dag()
-
-    Returns:
-        final_supernodes : dict  sn_name → list[str]  (includes EMB + LOGIT)
-    """
     from sklearn.cluster import SpectralClustering
 
     kept_ids   = data['kept_ids']
@@ -291,26 +263,68 @@ def cluster_with_target_k(data: dict,
     S_mid = S[middle_idx][:, middle_idx].numpy()
     S_mid = ((S_mid + S_mid.T) / 2).clip(0.0, 1.0)
 
-    # Print similarity distribution so the user can judge signal quality
+    # Similarity distribution
     upper = S_mid[np.triu_indices(M, k=1)]
+    global_mean = float(upper.mean())
     print(f'  Similarity stats (middle nodes, upper triangle):')
-    print(f'    mean={upper.mean():.4f}  median={np.median(upper):.4f}  '
+    print(f'    mean={global_mean:.4f}  median={np.median(upper):.4f}  '
           f'p75={np.percentile(upper,75):.4f}  max={upper.max():.4f}')
 
-    sc = SpectralClustering(
-        n_clusters    = target_k,
-        affinity      = 'precomputed',
-        assign_labels = 'kmeans',
-        random_state  = 42,
-        n_init        = 20,
-    )
-    labels = sc.fit_predict(S_mid)
+    # ── Outlier detection ────────────────────────────────────────────────────
+    max_sim_per_node  = S_mid.max(axis=1)
+    outlier_threshold = global_mean *1.0
+    outlier_mask      = max_sim_per_node < outlier_threshold
+    core_mask         = ~outlier_mask
 
-    raw_clusters: dict[int, list[str]] = defaultdict(list)
-    for nid, lbl in zip(middle_ids, labels):
-        raw_clusters[int(lbl)].append(nid)
+    outlier_ids = [middle_ids[i] for i in range(M) if outlier_mask[i]]
+    core_ids    = [middle_ids[i] for i in range(M) if core_mask[i]]
+    core_local  = [i for i in range(M) if core_mask[i]]   # indices into S_mid
+
+    if outlier_ids:
+        print(f'  Outliers ({len(outlier_ids)} nodes, max_sim < {outlier_threshold:.3f}):')
+        for nid in outlier_ids:
+            print(f'    {nid}')
+
+    # ── Cluster only core nodes ──────────────────────────────────────────────
+    S_core = S_mid[np.ix_(core_local, core_local)]
+    n_core = len(core_ids)
+
+    effective_k = min(target_k, n_core - 1)
+    if effective_k < 2:
+        # Degenerate: just one cluster for core
+        raw_clusters = {0: core_ids}
+    else:
+        sc = SpectralClustering(
+            n_clusters    = effective_k,
+            affinity      = 'precomputed',
+            assign_labels = 'kmeans',
+            random_state  = 42,
+            n_init        = 20,
+        )
+        labels = sc.fit_predict(S_core)
+        raw_clusters: dict[int, list[str]] = defaultdict(list)
+        for nid, lbl in zip(core_ids, labels):
+            raw_clusters[int(lbl)].append(nid)
 
     print(f'  Spectral clusters (before DAG enforcement): {len(raw_clusters)}')
+
+    # ── Assign each outlier to nearest-layer supernode ───────────────────────
+    # Build a layer map for core clusters first, then assign outliers
+    layers = {nid: parse_layer(nid) for nid in middle_ids}
+
+    if outlier_ids:
+        # Compute mean layer of each raw cluster
+        cluster_mean_layer = {
+            lbl: np.mean([layers[n] for n in members])
+            for lbl, members in raw_clusters.items()
+        }
+        for nid in outlier_ids:
+            nid_layer = layers[nid]
+            nearest_lbl = min(cluster_mean_layer,
+                              key=lambda lbl: abs(cluster_mean_layer[lbl] - nid_layer))
+            raw_clusters[nearest_lbl].append(nid)
+            print(f'  Outlier {nid} (L{nid_layer}) → cluster {nearest_lbl} '
+                  f'(mean_layer={cluster_mean_layer[nearest_lbl]:.1f})')
 
     return enforce_dag(dict(raw_clusters), data, max_layer_span)
 
@@ -318,17 +332,9 @@ def cluster_with_target_k(data: dict,
 # ─────────────────────────────────────────────────────────────────────────────
 # 4.  POST-PROCESS: enforce DAG ordering
 # ─────────────────────────────────────────────────────────────────────────────
-
 def enforce_dag(raw_clusters: dict,
                 data: dict,
                 max_layer_span: int = 4) -> dict:
-    """
-    Split any cluster whose layer span > max_layer_span into two halves
-    (split at the median layer).  Repeat until all clusters are within span.
-
-    Returns:
-        final_supernodes : dict  sn_name(str) → list[str]
-    """
     layers = {nid: parse_layer(nid) for nid in
               [n for members in raw_clusters.values() for n in members]}
 
@@ -343,9 +349,17 @@ def enforce_dag(raw_clusters: dict,
         if span <= max_layer_span or len(members) == 1:
             final.append(members)
         else:
-            median_layer = lvals[len(lvals) // 2]
-            lower = [n for n in members if layers[n] <= median_layer]
-            upper = [n for n in members if layers[n] >  median_layer]
+            # Split at the MIDPOINT of the layer range, not median of unique layers
+            mid_layer = (lvals[0] + lvals[-1]) / 2
+            lower = [n for n in members if layers[n] <= mid_layer]
+            upper = [n for n in members if layers[n] >  mid_layer]
+
+            # Guard: if split doesn't reduce either side, force split by membership
+            if not lower or not upper:
+                half = len(members) // 2
+                lower = members[:half]
+                upper = members[half:]
+
             if lower: queue.append(lower)
             if upper: queue.append(upper)
 

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Circuit Graph — Austin · Supernode View</title>
+<title>Circuit Graph — Austin · Supernode Reposition</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&family=Syne:wght@400;600;800&display=swap');
@@ -62,13 +62,16 @@ body {
   letter-spacing: .06em;
 }
 
-/* ── Supernode toggle button ── */
-#sn-toggle-wrap {
+/* ── Toggle buttons ── */
+#btn-wrap {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-#sn-toggle {
+.toggle-btn {
   width: 100%;
   padding: 8px 12px;
   background: transparent;
@@ -85,18 +88,18 @@ body {
   transition: all 0.2s;
 }
 
-#sn-toggle:hover {
+.toggle-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
 
-#sn-toggle.active {
+.toggle-btn.active {
   background: rgba(61,142,255,0.08);
   border-color: var(--accent);
   color: var(--accent);
 }
 
-#sn-toggle .dot {
+.toggle-btn .dot {
   width: 7px; height: 7px;
   border-radius: 50%;
   background: var(--dim);
@@ -104,7 +107,17 @@ body {
   transition: background 0.2s;
 }
 
-#sn-toggle.active .dot { background: var(--accent); }
+.toggle-btn.active .dot { background: var(--accent); }
+
+.toggle-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.toggle-btn:disabled:hover {
+  border-color: var(--border);
+  color: var(--dim);
+}
 
 /* ── Controls ── */
 #controls {
@@ -163,7 +176,7 @@ input[type=range] {
 
 .legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
 
-/* ── Supernode legend (shown when active) ── */
+/* ── Supernode legend ── */
 #sn-legend {
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
@@ -275,7 +288,7 @@ svg { width:100%; height:100%; }
 .sn-label {
   pointer-events: none;
   font-family: 'Syne', sans-serif;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: .06em;
   opacity: 0;
@@ -283,6 +296,28 @@ svg { width:100%; height:100%; }
 }
 
 .sn-label.visible { opacity: 0.55; }
+
+/* Tooltip for full clerp */
+.clerp-tooltip {
+  position: absolute;
+  background: #0d1525;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.15s;
+  max-width: 350px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clerp-tooltip.show { opacity: 1; }
 
 #title-overlay {
   position: absolute;
@@ -306,13 +341,17 @@ svg { width:100%; height:100%; }
 
     <div id="sidebar-header">
       <h2>Circuit Graph</h2>
-      <p>Gemma-2-2B &middot; Austin prediction &middot; supernode overlay</p>
+      <p>Gemma-2-2B &middot; Austin prediction &middot; supernode reposition</p>
     </div>
 
-    <div id="sn-toggle-wrap">
-      <button id="sn-toggle" onclick="toggleSupernode()">
+    <div id="btn-wrap">
+      <button class="toggle-btn" id="sn-toggle" onclick="toggleSupernode()">
         <span class="dot"></span>
         <span id="sn-toggle-label">SHOW SUPERNODES</span>
+      </button>
+      <button class="toggle-btn" id="repo-toggle" onclick="toggleReposition()" disabled>
+        <span class="dot"></span>
+        <span id="repo-toggle-label">REPOSITION BY CLUSTER</span>
       </button>
     </div>
 
@@ -334,7 +373,6 @@ svg { width:100%; height:100%; }
       </div>
     </div>
 
-    <!-- Normal legend (hidden when SN active) -->
     <div id="legend">
       <h3>Legend</h3>
       <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>Embedding</div>
@@ -345,7 +383,6 @@ svg { width:100%; height:100%; }
       <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div>Suppression (&minus;)</div>
     </div>
 
-    <!-- Supernode legend (shown when SN active) -->
     <div id="sn-legend">
       <h3>Supernodes</h3>
       <div id="sn-legend-items"></div>
@@ -360,29 +397,28 @@ svg { width:100%; height:100%; }
 
   <div id="canvas">
     <div id="title-overlay">prompt: "Fact: The capital of the state containing Dallas is"</div>
+    <div class="clerp-tooltip" id="tooltip"></div>
     <svg id="svg"></svg>
   </div>
 </div>
 
 <script>
-const GRAPH_DATA    = {"nodes":[{"id":"16_25_9","idx":0,"layer":16,"clerp":"Texas legal documents","activation":28.161054611206055,"influence":0.30853766202926636,"node_inf":0.503750205039978,"node_rel":0.6424384117126465,"type":"transcoder","ctx_idx":9},{"id":"16_12678_9","idx":1,"layer":16,"clerp":"cities","activation":32.055511474609375,"influence":0.47938570380210876,"node_inf":0.6242740750312805,"node_rel":0.6671419143676758,"type":"transcoder","ctx_idx":9},{"id":"16_4298_10","idx":2,"layer":16,"clerp":"capital","activation":19.929752349853516,"influence":0.4370741546154022,"node_inf":0.602944016456604,"node_rel":0.6816250681877136,"type":"transcoder","ctx_idx":10},{"id":"16_13497_10","idx":3,"layer":16,"clerp":"Numbers and parameters","activation":10.25689697265625,"influence":0.5397081971168518,"node_inf":0.6834822297096252,"node_rel":0.6882153153419495,"type":"transcoder","ctx_idx":10},{"id":"17_7178_10","idx":4,"layer":17,"clerp":"government buildings","activation":27.499170303344727,"influence":0.4326707124710083,"node_inf":0.5911982655525208,"node_rel":0.6703700423240662,"type":"transcoder","ctx_idx":10},{"id":"18_1026_10","idx":5,"layer":18,"clerp":"country names","activation":15.987024307250977,"influence":0.47264355421066284,"node_inf":0.627946674823761,"node_rel":0.6638426780700684,"type":"transcoder","ctx_idx":10},{"id":"18_1437_10","idx":6,"layer":18,"clerp":"Legal documents from Texas","activation":9.258520126342773,"influence":0.3877894878387451,"node_inf":0.5562974810600281,"node_rel":0.5726343393325806,"type":"transcoder","ctx_idx":10},{"id":"18_3852_10","idx":7,"layer":18,"clerp":"Locations","activation":8.451245307922363,"influence":0.5543112754821777,"node_inf":0.690534770488739,"node_rel":0.6541936993598938,"type":"transcoder","ctx_idx":10},{"id":"18_5495_10","idx":8,"layer":18,"clerp":"locations","activation":12.454998970031738,"influence":0.3778221309185028,"node_inf":0.5586398839950562,"node_rel":0.6529268622398376,"type":"transcoder","ctx_idx":10},{"id":"18_6101_10","idx":9,"layer":18,"clerp":"capital cities","activation":20.993831634521484,"influence":0.353518545627594,"node_inf":0.5406162738800049,"node_rel":0.6111692190170288,"type":"transcoder","ctx_idx":10},{"id":"18_8959_10","idx":10,"layer":18,"clerp":"government/state","activation":39.96460723876953,"influence":0.34427517652511597,"node_inf":0.5327083468437195,"node_rel":0.583856463432312,"type":"transcoder","ctx_idx":10},{"id":"18_16041_10","idx":11,"layer":18,"clerp":"capital","activation":9.471857070922852,"influence":0.5710763931274414,"node_inf":0.6959729790687561,"node_rel":0.5978565812110901,"type":"transcoder","ctx_idx":10},{"id":"19_7477_9","idx":12,"layer":19,"clerp":"Dallas","activation":55.77735137939453,"influence":0.4461807310581207,"node_inf":0.6141869425773621,"node_rel":0.4621724486351013,"type":"transcoder","ctx_idx":9},{"id":"19_37_10","idx":13,"layer":19,"clerp":"Places","activation":9.70290470123291,"influence":0.42132195830345154,"node_inf":0.6009480953216553,"node_rel":0.6603857278823853,"type":"transcoder","ctx_idx":10},{"id":"19_1445_10","idx":14,"layer":19,"clerp":"Downtowns of cities","activation":35.445884704589844,"influence":0.3703172504901886,"node_inf":0.5513288974761963,"node_rel":0.5909120440483093,"type":"transcoder","ctx_idx":10},{"id":"19_2439_10","idx":15,"layer":19,"clerp":"Politics and government","activation":17.402036666870117,"influence":0.42895475029945374,"node_inf":0.6105824112892151,"node_rel":0.6825917363166809,"type":"transcoder","ctx_idx":10},{"id":"19_2695_10","idx":16,"layer":19,"clerp":"cities","activation":17.39042854309082,"influence":0.3481781780719757,"node_inf":0.5347064137458801,"node_rel":0.5820506811141968,"type":"transcoder","ctx_idx":10},{"id":"19_7477_10","idx":17,"layer":19,"clerp":"Dallas","activation":26.97138023376465,"influence":0.38018736243247986,"node_inf":0.5718652606010437,"node_rel":0.5117101073265076,"type":"transcoder","ctx_idx":10},{"id":"20_15589_9","idx":18,"layer":20,"clerp":"Texas","activation":45.66069793701172,"influence":0.3149503767490387,"node_inf":0.5136339068412781,"node_rel":0.42887628078460693,"type":"transcoder","ctx_idx":9},{"id":"20_114_10","idx":19,"layer":20,"clerp":"Oklahoma locations","activation":17.246036529541016,"influence":0.5014265179634094,"node_inf":0.6628914475440979,"node_rel":0.5586973428726196,"type":"transcoder","ctx_idx":10},{"id":"20_5916_10","idx":20,"layer":20,"clerp":"capital","activation":53.430789947509766,"influence":0.4005405902862549,"node_inf":0.6376833319664001,"node_rel":0.5503513216972351,"type":"transcoder","ctx_idx":10},{"id":"20_6026_10","idx":21,"layer":20,"clerp":"political titles","activation":17.019506454467773,"influence":0.5160598158836365,"node_inf":0.6769418120384216,"node_rel":0.6516544818878174,"type":"transcoder","ctx_idx":10},{"id":"20_7507_10","idx":22,"layer":20,"clerp":"countries","activation":8.207452774047852,"influence":0.4665077328681946,"node_inf":0.6248093843460083,"node_rel":0.6354921460151672,"type":"transcoder","ctx_idx":10},{"id":"20_15276_10","idx":23,"layer":20,"clerp":"Dallas sports","activation":9.977458953857422,"influence":0.4912111461162567,"node_inf":0.6492293477058411,"node_rel":0.6796650886535645,"type":"transcoder","ctx_idx":10},{"id":"20_15589_10","idx":24,"layer":20,"clerp":"Texas","activation":49.56237030029297,"influence":0.2617618143558502,"node_inf":0.44637203216552734,"node_rel":0.43972745537757874,"type":"transcoder","ctx_idx":10},{"id":"21_5943_10","idx":25,"layer":21,"clerp":"cities","activation":56.36967849731445,"influence":0.28950780630111694,"node_inf":0.48222383856773376,"node_rel":0.5040941834449768,"type":"transcoder","ctx_idx":10},{"id":"21_6316_10","idx":26,"layer":21,"clerp":"special","activation":10.859695434570312,"influence":0.5389957427978516,"node_inf":0.6735473275184631,"node_rel":0.6029148101806641,"type":"transcoder","ctx_idx":10},{"id":"21_6795_10","idx":27,"layer":21,"clerp":" geographic place names near Texas, especially city names","activation":16.329008102416992,"influence":0.3928382992744446,"node_inf":0.5681957006454468,"node_rel":0.6835447549819946,"type":"transcoder","ctx_idx":10},{"id":"21_14975_10","idx":28,"layer":21,"clerp":"state/states","activation":12.310361862182617,"influence":0.4778422713279724,"node_inf":0.6606765985488892,"node_rel":0.509189784526825,"type":"transcoder","ctx_idx":10},{"id":"22_31_10","idx":29,"layer":22,"clerp":"government and policy","activation":24.702816009521484,"influence":0.4495241641998291,"node_inf":0.5975565910339355,"node_rel":0.5351501107215881,"type":"transcoder","ctx_idx":10},{"id":"22_3064_10","idx":30,"layer":22,"clerp":"Texas/Dallas","activation":58.497703552246094,"influence":0.35509079694747925,"node_inf":0.5486321449279785,"node_rel":0.43265777826309204,"type":"transcoder","ctx_idx":10},{"id":"22_3551_10","idx":31,"layer":22,"clerp":"Place names and legal cases","activation":48.35622024536133,"influence":0.39958977699279785,"node_inf":0.6036074161529541,"node_rel":0.44305652379989624,"type":"transcoder","ctx_idx":10},{"id":"22_4999_10","idx":32,"layer":22,"clerp":"Locations","activation":37.474365234375,"influence":0.340268611907959,"node_inf":0.5306426286697388,"node_rel":0.6282682418823242,"type":"transcoder","ctx_idx":10},{"id":"22_11718_10","idx":33,"layer":22,"clerp":"Texas locations","activation":34.40055847167969,"influence":0.3581143021583557,"node_inf":0.5457615852355957,"node_rel":0.5141720175743103,"type":"transcoder","ctx_idx":10},{"id":"23_2288_10","idx":34,"layer":23,"clerp":"Texas","activation":14.857239723205566,"influence":0.4864015579223633,"node_inf":0.6329339742660522,"node_rel":0.6012368202209473,"type":"transcoder","ctx_idx":10},{"id":"23_6617_10","idx":35,"layer":23,"clerp":"Locations","activation":9.104811668395996,"influence":0.4076133370399475,"node_inf":0.5867483019828796,"node_rel":0.543956458568573,"type":"transcoder","ctx_idx":10},{"id":"23_11444_10","idx":36,"layer":23,"clerp":"cities and places","activation":31.553499221801758,"influence":0.39767858386039734,"node_inf":0.5779512524604797,"node_rel":0.4795536398887634,"type":"transcoder","ctx_idx":10},{"id":"23_12237_10","idx":37,"layer":23,"clerp":"Cities and states names","activation":54.44024658203125,"influence":0.2937966287136078,"node_inf":0.4923928678035736,"node_rel":0.4907204806804657,"type":"transcoder","ctx_idx":10},{"id":"23_12918_10","idx":38,"layer":23,"clerp":"Texas","activation":18.481760025024414,"influence":0.4413743019104004,"node_inf":0.5844557881355286,"node_rel":0.5566443800926208,"type":"transcoder","ctx_idx":10},{"id":"23_13193_10","idx":39,"layer":23,"clerp":"Legal and Southern place names","activation":26.52860450744629,"influence":0.39185357093811035,"node_inf":0.5771167278289795,"node_rel":0.436264306306839,"type":"transcoder","ctx_idx":10},{"id":"23_13541_10","idx":40,"layer":23,"clerp":"News articles","activation":13.37681770324707,"influence":0.4482012093067169,"node_inf":0.6187967658042908,"node_rel":0.5373917818069458,"type":"transcoder","ctx_idx":10},{"id":"23_13841_10","idx":41,"layer":23,"clerp":"towns and cities","activation":23.951501846313477,"influence":0.41097232699394226,"node_inf":0.5700598359107971,"node_rel":0.4961755871772766,"type":"transcoder","ctx_idx":10},{"id":"23_15366_10","idx":42,"layer":23,"clerp":"Code snippets","activation":23.04979705810547,"influence":0.410140722990036,"node_inf":0.5828690528869629,"node_rel":0.4710443913936615,"type":"transcoder","ctx_idx":10},{"id":"24_709_10","idx":43,"layer":24,"clerp":"patent identifiers","activation":10.41057014465332,"influence":0.5277593731880188,"node_inf":0.6650865077972412,"node_rel":0.45276764035224915,"type":"transcoder","ctx_idx":10},{"id":"24_6044_10","idx":44,"layer":24,"clerp":"in","activation":55.07466125488281,"influence":0.26938262581825256,"node_inf":0.4541793763637543,"node_rel":0.37491774559020996,"type":"transcoder","ctx_idx":10},{"id":"24_6394_10","idx":45,"layer":24,"clerp":"locations","activation":25.956756591796875,"influence":0.31806522607803345,"node_inf":0.5070959329605103,"node_rel":0.4174559712409973,"type":"transcoder","ctx_idx":10},{"id":"24_13277_10","idx":46,"layer":24,"clerp":"Romance languages","activation":116.56781005859375,"influence":0.3207222521305084,"node_inf":0.5442452430725098,"node_rel":0.39357802271842957,"type":"transcoder","ctx_idx":10},{"id":"24_15013_10","idx":47,"layer":24,"clerp":"in","activation":29.573305130004883,"influence":0.39671972393989563,"node_inf":0.5672330856323242,"node_rel":0.5764834880828857,"type":"transcoder","ctx_idx":10},{"id":"24_15627_10","idx":48,"layer":24,"clerp":"Locations","activation":26.425865173339844,"influence":0.5334911942481995,"node_inf":0.6643580198287964,"node_rel":0.46812674403190613,"type":"transcoder","ctx_idx":10},{"id":"24_15694_10","idx":49,"layer":24,"clerp":"US states","activation":15.492658615112305,"influence":0.38570302724838257,"node_inf":0.5736559629440308,"node_rel":0.42507609724998474,"type":"transcoder","ctx_idx":10},{"id":"24_16258_10","idx":50,"layer":24,"clerp":"Detects place names","activation":22.161821365356445,"influence":0.4341493248939514,"node_inf":0.6117962002754211,"node_rel":0.4879726767539978,"type":"transcoder","ctx_idx":10},{"id":"25_553_10","idx":51,"layer":25,"clerp":"general English text","activation":51.21272277832031,"influence":0.3908545970916748,"node_inf":0.56308913230896,"node_rel":0.34816837310791016,"type":"transcoder","ctx_idx":10},{"id":"25_583_10","idx":52,"layer":25,"clerp":"city names","activation":25.033527374267578,"influence":0.4399704337120056,"node_inf":0.6087267398834229,"node_rel":0.329296350479126,"type":"transcoder","ctx_idx":10},{"id":"25_762_10","idx":53,"layer":25,"clerp":"international locations","activation":11.218003273010254,"influence":0.557261049747467,"node_inf":0.6976218819618225,"node_rel":0.4463089406490326,"type":"transcoder","ctx_idx":10},{"id":"25_2687_10","idx":54,"layer":25,"clerp":"locations","activation":10.401391983032227,"influence":0.5371884107589722,"node_inf":0.681888222694397,"node_rel":0.5189476609230042,"type":"transcoder","ctx_idx":10},{"id":"25_4259_10","idx":55,"layer":25,"clerp":"place names","activation":29.208019256591797,"influence":0.3813396096229553,"node_inf":0.5597975850105286,"node_rel":0.4016871750354767,"type":"transcoder","ctx_idx":10},{"id":"25_4679_10","idx":56,"layer":25,"clerp":"locations","activation":16.612194061279297,"influence":0.47681233286857605,"node_inf":0.6475200653076172,"node_rel":0.34203040599823,"type":"transcoder","ctx_idx":10},{"id":"25_4717_10","idx":57,"layer":25,"clerp":"unusual/fantastical narratives","activation":31.325275421142578,"influence":0.5018808841705322,"node_inf":0.6766054630279541,"node_rel":0.23596175014972687,"type":"transcoder","ctx_idx":10},{"id":"25_4886_10","idx":58,"layer":25,"clerp":"last names","activation":27.91666603088379,"influence":0.4710070490837097,"node_inf":0.640888512134552,"node_rel":0.3647925555706024,"type":"transcoder","ctx_idx":10},{"id":"25_13300_10","idx":59,"layer":25,"clerp":"Texas","activation":22.506214141845703,"influence":0.3118090033531189,"node_inf":0.5103733539581299,"node_rel":0.3356659710407257,"type":"transcoder","ctx_idx":10},{"id":"25_16302_10","idx":60,"layer":25,"clerp":"Legal/court cases","activation":39.762672424316406,"influence":0.4197622239589691,"node_inf":0.6324470043182373,"node_rel":0.35393330454826355,"type":"transcoder","ctx_idx":10},{"id":"E_6037_4","idx":61,"layer":0,"clerp":"Emb: \"  capital\"","activation":4.151672497391701,"influence":0.04151672497391701,"node_inf":0.30017998814582825,"node_rel":0.049385324120521545,"type":"embedding","ctx_idx":4},{"id":"E_2329_7","idx":62,"layer":0,"clerp":"Emb: \"  state\"","activation":22.769589722156525,"influence":0.22769589722156525,"node_inf":0.42430540919303894,"node_rel":0.14815597236156464,"type":"embedding","ctx_idx":7},{"id":"E_26865_9","idx":63,"layer":0,"clerp":"Emb: \"  Dallas\"","activation":17.13559329509735,"influence":0.1713559329509735,"node_inf":0.37386056780815125,"node_rel":0.09877064824104309,"type":"embedding","ctx_idx":9},{"id":"27_22605_10","idx":64,"layer":27,"clerp":"Output \" Austin\" (p=0.450)","activation":45.04172205924988,"influence":0.0,"node_inf":0.2687775194644928,"node_rel":0.25191667675971985,"type":"logit","ctx_idx":10}],"edges":[{"source":"16_25_9","target":"E_6037_4","weight":1.6212713718414307,"flow":45.65671157836914,"abs_flow":45.65671157836914,"to_logit":false},{"source":"16_25_9","target":"E_2329_7","weight":1.7901637554168701,"flow":50.412899017333984,"abs_flow":50.412899017333984,"to_logit":false},{"source":"16_25_9","target":"E_26865_9","weight":28.952579498291016,"flow":815.3351440429688,"abs_flow":815.3351440429688,"to_logit":false},{"source":"16_25_9","target":"27_22605_10","weight":0.30853766202926636,"flow":8.688745498657227,"abs_flow":8.688745498657227,"to_logit":true},{"source":"16_12678_9","target":"E_26865_9","weight":15.180190086364746,"flow":486.6087646484375,"abs_flow":486.6087646484375,"to_logit":false},{"source":"16_12678_9","target":"27_22605_10","weight":0.47938570380210876,"flow":15.36695384979248,"abs_flow":15.36695384979248,"to_logit":true},{"source":"16_4298_10","target":"E_6037_4","weight":12.38614559173584,"flow":246.85281372070312,"abs_flow":246.85281372070312,"to_logit":false},{"source":"16_4298_10","target":"E_2329_7","weight":1.2549433708190918,"flow":25.010709762573242,"abs_flow":25.010709762573242,"to_logit":false},{"source":"16_4298_10","target":"E_26865_9","weight":-1.518236756324768,"flow":-30.25808334350586,"abs_flow":30.25808334350586,"to_logit":false},{"source":"16_4298_10","target":"27_22605_10","weight":0.4370741546154022,"flow":8.710779190063477,"abs_flow":8.710779190063477,"to_logit":true},{"source":"16_13497_10","target":"E_6037_4","weight":11.460592269897461,"flow":117.55011749267578,"abs_flow":117.55011749267578,"to_logit":false},{"source":"16_13497_10","target":"27_22605_10","weight":0.5397081971168518,"flow":5.535731315612793,"abs_flow":5.535731315612793,"to_logit":true},{"source":"17_7178_10","target":"16_4298_10","weight":3.227503776550293,"flow":88.75367736816406,"abs_flow":88.75367736816406,"to_logit":false},{"source":"17_7178_10","target":"E_6037_4","weight":10.176862716674805,"flow":279.85528564453125,"abs_flow":279.85528564453125,"to_logit":false},{"source":"17_7178_10","target":"E_2329_7","weight":3.705526351928711,"flow":101.8989028930664,"abs_flow":101.8989028930664,"to_logit":false},{"source":"17_7178_10","target":"27_22605_10","weight":0.4326707124710083,"flow":11.898085594177246,"abs_flow":11.898085594177246,"to_logit":true},{"source":"18_1026_10","target":"E_6037_4","weight":6.139094352722168,"flow":98.1458511352539,"abs_flow":98.1458511352539,"to_logit":false},{"source":"18_1026_10","target":"E_2329_7","weight":3.2196578979492188,"flow":51.472747802734375,"abs_flow":51.472747802734375,"to_logit":false},{"source":"18_1026_10","target":"27_22605_10","weight":0.47264355421066284,"flow":7.556163787841797,"abs_flow":7.556163787841797,"to_logit":true},{"source":"18_1437_10","target":"16_25_9","weight":3.15716552734375,"flow":29.230680465698242,"abs_flow":29.230680465698242,"to_logit":false},{"source":"18_1437_10","target":"17_7178_10","weight":4.214075565338135,"flow":39.0161018371582,"abs_flow":39.0161018371582,"to_logit":false},{"source":"18_1437_10","target":"E_6037_4","weight":4.862306118011475,"flow":45.017757415771484,"abs_flow":45.017757415771484,"to_logit":false},{"source":"18_1437_10","target":"E_2329_7","weight":2.030958652496338,"flow":18.80367088317871,"abs_flow":18.80367088317871,"to_logit":false},{"source":"18_1437_10","target":"E_26865_9","weight":16.843660354614258,"flow":155.94737243652344,"abs_flow":155.94737243652344,"to_logit":false},{"source":"18_1437_10","target":"27_22605_10","weight":0.3877894878387451,"flow":3.5903568267822266,"abs_flow":3.5903568267822266,"to_logit":true},{"source":"18_3852_10","target":"16_4298_10","weight":9.207684516906738,"flow":77.81639862060547,"abs_flow":77.81639862060547,"to_logit":false},{"source":"18_3852_10","target":"E_6037_4","weight":13.271122932434082,"flow":112.15751647949219,"abs_flow":112.15751647949219,"to_logit":false},{"source":"18_3852_10","target":"27_22605_10","weight":0.5543112754821777,"flow":4.684620380401611,"abs_flow":4.684620380401611,"to_logit":true},{"source":"18_5495_10","target":"16_4298_10","weight":3.0316476821899414,"flow":37.75917053222656,"abs_flow":37.75917053222656,"to_logit":false},{"source":"18_5495_10","target":"E_6037_4","weight":8.753745079040527,"flow":109.02788543701172,"abs_flow":109.02788543701172,"to_logit":false},{"source":"18_5495_10","target":"E_2329_7","weight":2.954479694366455,"flow":36.79804229736328,"abs_flow":36.79804229736328,"to_logit":false},{"source":"18_5495_10","target":"E_26865_9","weight":2.9681286811828613,"flow":36.968040466308594,"abs_flow":36.968040466308594,"to_logit":false},{"source":"18_5495_10","target":"27_22605_10","weight":0.3778221309185028,"flow":4.705774307250977,"abs_flow":4.705774307250977,"to_logit":true},{"source":"18_6101_10","target":"17_7178_10","weight":15.32459831237793,"flow":321.7220458984375,"abs_flow":321.7220458984375,"to_logit":false},{"source":"18_6101_10","target":"E_6037_4","weight":3.7196831703186035,"flow":78.09040069580078,"abs_flow":78.09040069580078,"to_logit":false},{"source":"18_6101_10","target":"E_2329_7","weight":3.983534812927246,"flow":83.6296615600586,"abs_flow":83.6296615600586,"to_logit":false},{"source":"18_6101_10","target":"E_26865_9","weight":-1.7019894123077393,"flow":-35.73127746582031,"abs_flow":35.73127746582031,"to_logit":false},{"source":"18_6101_10","target":"27_22605_10","weight":0.353518545627594,"flow":7.421709060668945,"abs_flow":7.421709060668945,"to_logit":true},{"source":"18_8959_10","target":"17_7178_10","weight":14.332962989807129,"flow":572.8112182617188,"abs_flow":572.8112182617188,"to_logit":false},{"source":"18_8959_10","target":"E_6037_4","weight":4.11737060546875,"flow":164.54910278320312,"abs_flow":164.54910278320312,"to_logit":false},{"source":"18_8959_10","target":"E_2329_7","weight":19.626323699951172,"flow":784.3583374023438,"abs_flow":784.3583374023438,"to_logit":false},{"source":"18_8959_10","target":"E_26865_9","weight":-0.8525649905204773,"flow":-34.072425842285156,"abs_flow":34.072425842285156,"to_logit":false},{"source":"18_8959_10","target":"27_22605_10","weight":0.34427517652511597,"flow":13.758822441101074,"abs_flow":13.758822441101074,"to_logit":true},{"source":"18_16041_10","target":"16_4298_10","weight":7.470447063446045,"flow":70.7590103149414,"abs_flow":70.7590103149414,"to_logit":false},{"source":"18_16041_10","target":"E_6037_4","weight":14.127740859985352,"flow":133.81594848632812,"abs_flow":133.81594848632812,"to_logit":false},{"source":"18_16041_10","target":"27_22605_10","weight":0.5710763931274414,"flow":5.409153938293457,"abs_flow":5.409153938293457,"to_logit":true},{"source":"19_7477_9","target":"16_25_9","weight":17.813215255737305,"flow":993.573974609375,"abs_flow":993.573974609375,"to_logit":false},{"source":"19_7477_9","target":"E_2329_7","weight":4.301871299743652,"flow":239.94699096679688,"abs_flow":239.94699096679688,"to_logit":false},{"source":"19_7477_9","target":"E_26865_9","weight":68.85057067871094,"flow":3840.302490234375,"abs_flow":3840.302490234375,"to_logit":false},{"source":"19_7477_9","target":"27_22605_10","weight":0.4461807310581207,"flow":24.88677978515625,"abs_flow":24.88677978515625,"to_logit":true},{"source":"19_37_10","target":"E_6037_4","weight":10.662626266479492,"flow":103.45845031738281,"abs_flow":103.45845031738281,"to_logit":false},{"source":"19_37_10","target":"E_2329_7","weight":2.130281925201416,"flow":20.669921875,"abs_flow":20.669921875,"to_logit":false},{"source":"19_37_10","target":"27_22605_10","weight":0.42132195830345154,"flow":4.088047027587891,"abs_flow":4.088047027587891,"to_logit":true},{"source":"19_1445_10","target":"16_4298_10","weight":5.942749977111816,"flow":210.64602661132812,"abs_flow":210.64602661132812,"to_logit":false},{"source":"19_1445_10","target":"16_13497_10","weight":-1.3270196914672852,"flow":-47.03738784790039,"abs_flow":47.03738784790039,"to_logit":false},{"source":"19_1445_10","target":"18_3852_10","weight":3.5267386436462402,"flow":125.00836944580078,"abs_flow":125.00836944580078,"to_logit":false},{"source":"19_1445_10","target":"18_5495_10","weight":-2.4097888469696045,"flow":-85.41709899902344,"abs_flow":85.41709899902344,"to_logit":false},{"source":"19_1445_10","target":"18_6101_10","weight":7.787087440490723,"flow":276.02020263671875,"abs_flow":276.02020263671875,"to_logit":false},{"source":"19_1445_10","target":"18_16041_10","weight":-1.241327166557312,"flow":-43.99993896484375,"abs_flow":43.99993896484375,"to_logit":false},{"source":"19_1445_10","target":"E_6037_4","weight":13.53840446472168,"flow":479.8807373046875,"abs_flow":479.8807373046875,"to_logit":false},{"source":"19_1445_10","target":"E_26865_9","weight":-1.6609995365142822,"flow":-58.8755989074707,"abs_flow":58.8755989074707,"to_logit":false},{"source":"19_1445_10","target":"27_22605_10","weight":0.3703172504901886,"flow":13.126222610473633,"abs_flow":13.126222610473633,"to_logit":true},{"source":"19_2439_10","target":"18_8959_10","weight":6.8605732917785645,"flow":119.38794708251953,"abs_flow":119.38794708251953,"to_logit":false},{"source":"19_2439_10","target":"E_2329_7","weight":7.066841125488281,"flow":122.97742462158203,"abs_flow":122.97742462158203,"to_logit":false},{"source":"19_2439_10","target":"E_26865_9","weight":1.4258010387420654,"flow":24.81184196472168,"abs_flow":24.81184196472168,"to_logit":false},{"source":"19_2439_10","target":"27_22605_10","weight":0.42895475029945374,"flow":7.464686393737793,"abs_flow":7.464686393737793,"to_logit":true},{"source":"19_2695_10","target":"16_4298_10","weight":5.556030750274658,"flow":96.62175750732422,"abs_flow":96.62175750732422,"to_logit":false},{"source":"19_2695_10","target":"18_3852_10","weight":-1.1002641916275024,"flow":-19.134065628051758,"abs_flow":19.134065628051758,"to_logit":false},{"source":"19_2695_10","target":"18_8959_10","weight":-2.390134572982788,"flow":-41.56546401977539,"abs_flow":41.56546401977539,"to_logit":false},{"source":"19_2695_10","target":"E_6037_4","weight":19.893362045288086,"flow":345.9541015625,"abs_flow":345.9541015625,"to_logit":false},{"source":"19_2695_10","target":"E_2329_7","weight":-2.0032904148101807,"flow":-34.838077545166016,"abs_flow":34.838077545166016,"to_logit":false},{"source":"19_2695_10","target":"E_26865_9","weight":6.248342514038086,"flow":108.6613540649414,"abs_flow":108.6613540649414,"to_logit":false},{"source":"19_2695_10","target":"27_22605_10","weight":0.3481781780719757,"flow":6.054967880249023,"abs_flow":6.054967880249023,"to_logit":true},{"source":"19_7477_10","target":"16_25_9","weight":6.368991851806641,"flow":171.78050231933594,"abs_flow":171.78050231933594,"to_logit":false},{"source":"19_7477_10","target":"18_8959_10","weight":6.220435619354248,"flow":167.7737274169922,"abs_flow":167.7737274169922,"to_logit":false},{"source":"19_7477_10","target":"E_2329_7","weight":2.8525986671447754,"flow":76.93852233886719,"abs_flow":76.93852233886719,"to_logit":false},{"source":"19_7477_10","target":"E_26865_9","weight":42.318077087402344,"flow":1141.376953125,"abs_flow":1141.376953125,"to_logit":false},{"source":"19_7477_10","target":"27_22605_10","weight":0.38018736243247986,"flow":10.254178047180176,"abs_flow":10.254178047180176,"to_logit":true},{"source":"20_15589_9","target":"16_25_9","weight":22.179092407226562,"flow":1012.7128295898438,"abs_flow":1012.7128295898438,"to_logit":false},{"source":"20_15589_9","target":"16_12678_9","weight":4.843243598937988,"flow":221.14588928222656,"abs_flow":221.14588928222656,"to_logit":false},{"source":"20_15589_9","target":"19_7477_9","weight":-10.143698692321777,"flow":-463.1683654785156,"abs_flow":463.1683654785156,"to_logit":false},{"source":"20_15589_9","target":"E_6037_4","weight":5.25302267074585,"flow":239.85667419433594,"abs_flow":239.85667419433594,"to_logit":false},{"source":"20_15589_9","target":"E_2329_7","weight":4.370912075042725,"flow":199.5789031982422,"abs_flow":199.5789031982422,"to_logit":false},{"source":"20_15589_9","target":"E_26865_9","weight":62.20330810546875,"flow":2840.24658203125,"abs_flow":2840.24658203125,"to_logit":false},{"source":"20_15589_9","target":"27_22605_10","weight":0.3149503767490387,"flow":14.380853652954102,"abs_flow":14.380853652954102,"to_logit":true},{"source":"20_114_10","target":"19_1445_10","weight":7.7043280601501465,"flow":132.86912536621094,"abs_flow":132.86912536621094,"to_logit":false},{"source":"20_114_10","target":"E_6037_4","weight":8.773335456848145,"flow":151.30526733398438,"abs_flow":151.30526733398438,"to_logit":false},{"source":"20_114_10","target":"E_26865_9","weight":10.799470901489258,"flow":186.24806213378906,"abs_flow":186.24806213378906,"to_logit":false},{"source":"20_114_10","target":"27_22605_10","weight":0.5014265179634094,"flow":8.64762020111084,"abs_flow":8.64762020111084,"to_logit":true},{"source":"20_5916_10","target":"17_7178_10","weight":9.595592498779297,"flow":512.7000732421875,"abs_flow":512.7000732421875,"to_logit":false},{"source":"20_5916_10","target":"18_6101_10","weight":6.0801897048950195,"flow":324.86932373046875,"abs_flow":324.86932373046875,"to_logit":false},{"source":"20_5916_10","target":"18_8959_10","weight":9.776843070983887,"flow":522.3844604492188,"abs_flow":522.3844604492188,"to_logit":false},{"source":"20_5916_10","target":"18_16041_10","weight":2.7737481594085693,"flow":148.20355224609375,"abs_flow":148.20355224609375,"to_logit":false},{"source":"20_5916_10","target":"19_2695_10","weight":2.4655933380126953,"flow":131.7386016845703,"abs_flow":131.7386016845703,"to_logit":false},{"source":"20_5916_10","target":"E_6037_4","weight":9.140715599060059,"flow":488.3956604003906,"abs_flow":488.3956604003906,"to_logit":false},{"source":"20_5916_10","target":"E_2329_7","weight":3.97571063041687,"flow":212.42535400390625,"abs_flow":212.42535400390625,"to_logit":false},{"source":"20_5916_10","target":"E_26865_9","weight":2.6348345279693604,"flow":140.7812957763672,"abs_flow":140.7812957763672,"to_logit":false},{"source":"20_5916_10","target":"27_22605_10","weight":0.4005405902862549,"flow":21.401199340820312,"abs_flow":21.401199340820312,"to_logit":true},{"source":"20_6026_10","target":"18_8959_10","weight":5.809067726135254,"flow":98.86746215820312,"abs_flow":98.86746215820312,"to_logit":false},{"source":"20_6026_10","target":"E_6037_4","weight":-5.735012054443359,"flow":-97.60707092285156,"abs_flow":97.60707092285156,"to_logit":false},{"source":"20_6026_10","target":"E_2329_7","weight":6.65162467956543,"flow":113.20736694335938,"abs_flow":113.20736694335938,"to_logit":false},{"source":"20_6026_10","target":"27_22605_10","weight":0.5160598158836365,"flow":8.783082962036133,"abs_flow":8.783082962036133,"to_logit":true},{"source":"20_7507_10","target":"18_5495_10","weight":3.22324538230896,"flow":26.454633712768555,"abs_flow":26.454633712768555,"to_logit":false},{"source":"20_7507_10","target":"18_8959_10","weight":2.714432954788208,"flow":22.278579711914062,"abs_flow":22.278579711914062,"to_logit":false},{"source":"20_7507_10","target":"19_37_10","weight":3.868971586227417,"flow":31.75440216064453,"abs_flow":31.75440216064453,"to_logit":false},{"source":"20_7507_10","target":"19_1445_10","weight":3.887993097305298,"flow":31.910520553588867,"abs_flow":31.910520553588867,"to_logit":false},{"source":"20_7507_10","target":"E_26865_9","weight":-4.239428520202637,"flow":-34.7949104309082,"abs_flow":34.7949104309082,"to_logit":false},{"source":"20_7507_10","target":"27_22605_10","weight":0.4665077328681946,"flow":3.8288402557373047,"abs_flow":3.8288402557373047,"to_logit":true},{"source":"20_15276_10","target":"19_7477_10","weight":7.409543514251709,"flow":73.92841339111328,"abs_flow":73.92841339111328,"to_logit":false},{"source":"20_15276_10","target":"E_6037_4","weight":2.4606502056121826,"flow":24.551036834716797,"abs_flow":24.551036834716797,"to_logit":false},{"source":"20_15276_10","target":"E_26865_9","weight":10.789968490600586,"flow":107.6564712524414,"abs_flow":107.6564712524414,"to_logit":false},{"source":"20_15276_10","target":"27_22605_10","weight":0.4912111461162567,"flow":4.901039123535156,"abs_flow":4.901039123535156,"to_logit":true},{"source":"20_15589_10","target":"16_25_9","weight":10.518417358398438,"flow":521.3176879882812,"abs_flow":521.3176879882812,"to_logit":false},{"source":"20_15589_10","target":"16_13497_10","weight":1.120300054550171,"flow":55.52472686767578,"abs_flow":55.52472686767578,"to_logit":false},{"source":"20_15589_10","target":"18_1026_10","weight":-2.8140687942504883,"flow":-139.471923828125,"abs_flow":139.471923828125,"to_logit":false},{"source":"20_15589_10","target":"18_1437_10","weight":1.9743841886520386,"flow":97.85516357421875,"abs_flow":97.85516357421875,"to_logit":false},{"source":"20_15589_10","target":"18_5495_10","weight":1.432824730873108,"flow":71.01419067382812,"abs_flow":71.01419067382812,"to_logit":false},{"source":"20_15589_10","target":"18_8959_10","weight":10.58452320098877,"flow":524.5940551757812,"abs_flow":524.5940551757812,"to_logit":false},{"source":"20_15589_10","target":"18_16041_10","weight":0.6748217344284058,"flow":33.44576644897461,"abs_flow":33.44576644897461,"to_logit":false},{"source":"20_15589_10","target":"19_7477_9","weight":-0.9802798628807068,"flow":-48.58499526977539,"abs_flow":48.58499526977539,"to_logit":false},{"source":"20_15589_10","target":"19_37_10","weight":1.6146128177642822,"flow":80.02404022216797,"abs_flow":80.02404022216797,"to_logit":false},{"source":"20_15589_10","target":"19_1445_10","weight":6.8437957763671875,"flow":339.1947326660156,"abs_flow":339.1947326660156,"to_logit":false},{"source":"20_15589_10","target":"19_2439_10","weight":5.119610786437988,"flow":253.74005126953125,"abs_flow":253.74005126953125,"to_logit":false},{"source":"20_15589_10","target":"19_2695_10","weight":1.6350616216659546,"flow":81.03752899169922,"abs_flow":81.03752899169922,"to_logit":false},{"source":"20_15589_10","target":"19_7477_10","weight":-5.5313944816589355,"flow":-274.1490173339844,"abs_flow":274.1490173339844,"to_logit":false},{"source":"20_15589_10","target":"E_6037_4","weight":5.814103603363037,"flow":288.1607666015625,"abs_flow":288.1607666015625,"to_logit":false},{"source":"20_15589_10","target":"E_2329_7","weight":6.655551433563232,"flow":329.8648986816406,"abs_flow":329.8648986816406,"to_logit":false},{"source":"20_15589_10","target":"E_26865_9","weight":43.25907897949219,"flow":2144.0224609375,"abs_flow":2144.0224609375,"to_logit":false},{"source":"20_15589_10","target":"27_22605_10","weight":0.2617618143558502,"flow":12.973535537719727,"abs_flow":12.973535537719727,"to_logit":true},{"source":"21_5943_10","target":"16_4298_10","weight":7.165119171142578,"flow":403.8954772949219,"abs_flow":403.8954772949219,"to_logit":false},{"source":"21_5943_10","target":"17_7178_10","weight":6.123608589172363,"flow":345.18585205078125,"abs_flow":345.18585205078125,"to_logit":false},{"source":"21_5943_10","target":"18_3852_10","weight":2.3899130821228027,"flow":134.7186279296875,"abs_flow":134.7186279296875,"to_logit":false},{"source":"21_5943_10","target":"18_6101_10","weight":14.017451286315918,"flow":790.1592407226562,"abs_flow":790.1592407226562,"to_logit":false},{"source":"21_5943_10","target":"18_8959_10","weight":3.7615818977355957,"flow":212.03916931152344,"abs_flow":212.03916931152344,"to_logit":false},{"source":"21_5943_10","target":"18_16041_10","weight":-1.3438551425933838,"flow":-75.752685546875,"abs_flow":75.752685546875,"to_logit":false},{"source":"21_5943_10","target":"19_37_10","weight":4.823546886444092,"flow":271.90179443359375,"abs_flow":271.90179443359375,"to_logit":false},{"source":"21_5943_10","target":"19_2695_10","weight":9.616782188415527,"flow":542.0949096679688,"abs_flow":542.0949096679688,"to_logit":false},{"source":"21_5943_10","target":"20_114_10","weight":-1.9407322406768799,"flow":-109.39845275878906,"abs_flow":109.39845275878906,"to_logit":false},{"source":"21_5943_10","target":"20_5916_10","weight":4.261185169219971,"flow":240.20164489746094,"abs_flow":240.20164489746094,"to_logit":false},{"source":"21_5943_10","target":"E_6037_4","weight":6.177616119384766,"flow":348.230224609375,"abs_flow":348.230224609375,"to_logit":false},{"source":"21_5943_10","target":"E_2329_7","weight":3.29408597946167,"flow":185.6865692138672,"abs_flow":185.6865692138672,"to_logit":false},{"source":"21_5943_10","target":"E_26865_9","weight":0.26709648966789246,"flow":15.056142807006836,"abs_flow":15.056142807006836,"to_logit":false},{"source":"21_5943_10","target":"27_22605_10","weight":0.28950780630111694,"flow":16.319461822509766,"abs_flow":16.319461822509766,"to_logit":true},{"source":"21_6316_10","target":"18_8959_10","weight":8.678278923034668,"flow":94.24346923828125,"abs_flow":94.24346923828125,"to_logit":false},{"source":"21_6316_10","target":"20_5916_10","weight":4.840484142303467,"flow":52.566184997558594,"abs_flow":52.566184997558594,"to_logit":false},{"source":"21_6316_10","target":"E_6037_4","weight":5.594566822052002,"flow":60.75529098510742,"abs_flow":60.75529098510742,"to_logit":false},{"source":"21_6316_10","target":"27_22605_10","weight":0.5389957427978516,"flow":5.853329658508301,"abs_flow":5.853329658508301,"to_logit":true},{"source":"21_6795_10","target":"18_1437_10","weight":1.0668891668319702,"flow":17.421241760253906,"abs_flow":17.421241760253906,"to_logit":false},{"source":"21_6795_10","target":"19_7477_10","weight":-1.1268929243087769,"flow":-18.401042938232422,"abs_flow":18.401042938232422,"to_logit":false},{"source":"21_6795_10","target":"20_15589_10","weight":14.732722282409668,"flow":240.57073974609375,"abs_flow":240.57073974609375,"to_logit":false},{"source":"21_6795_10","target":"E_26865_9","weight":4.771299362182617,"flow":77.91058349609375,"abs_flow":77.91058349609375,"to_logit":false},{"source":"21_6795_10","target":"27_22605_10","weight":0.3928382992744446,"flow":6.4146599769592285,"abs_flow":6.4146599769592285,"to_logit":true},{"source":"21_14975_10","target":"18_8959_10","weight":9.5432767868042,"flow":117.48119354248047,"abs_flow":117.48119354248047,"to_logit":false},{"source":"21_14975_10","target":"20_5916_10","weight":12.303777694702148,"flow":151.46395874023438,"abs_flow":151.46395874023438,"to_logit":false},{"source":"21_14975_10","target":"E_2329_7","weight":6.08352518081665,"flow":74.89039611816406,"abs_flow":74.89039611816406,"to_logit":false},{"source":"21_14975_10","target":"27_22605_10","weight":0.4778422713279724,"flow":5.882411479949951,"abs_flow":5.882411479949951,"to_logit":true},{"source":"22_31_10","target":"18_8959_10","weight":14.06282901763916,"flow":347.3914794921875,"abs_flow":347.3914794921875,"to_logit":false},{"source":"22_31_10","target":"21_5943_10","weight":3.2801196575164795,"flow":81.02819061279297,"abs_flow":81.02819061279297,"to_logit":false},{"source":"22_31_10","target":"21_14975_10","weight":3.146336555480957,"flow":77.72337341308594,"abs_flow":77.72337341308594,"to_logit":false},{"source":"22_31_10","target":"E_2329_7","weight":8.172918319702148,"flow":201.89410400390625,"abs_flow":201.89410400390625,"to_logit":false},{"source":"22_31_10","target":"E_26865_9","weight":3.584059238433838,"flow":88.5363540649414,"abs_flow":88.5363540649414,"to_logit":false},{"source":"22_31_10","target":"27_22605_10","weight":0.4495241641998291,"flow":11.104513168334961,"abs_flow":11.104513168334961,"to_logit":true},{"source":"22_3064_10","target":"16_25_9","weight":7.452774524688721,"flow":435.9701843261719,"abs_flow":435.9701843261719,"to_logit":false},{"source":"22_3064_10","target":"19_7477_9","weight":4.718052864074707,"flow":275.9952697753906,"abs_flow":275.9952697753906,"to_logit":false},{"source":"22_3064_10","target":"19_7477_10","weight":9.444938659667969,"flow":552.5072021484375,"abs_flow":552.5072021484375,"to_logit":false},{"source":"22_3064_10","target":"20_15589_9","weight":5.587243556976318,"flow":326.8409118652344,"abs_flow":326.8409118652344,"to_logit":false},{"source":"22_3064_10","target":"20_5916_10","weight":2.571096420288086,"flow":150.40322875976562,"abs_flow":150.40322875976562,"to_logit":false},{"source":"22_3064_10","target":"20_15589_10","weight":18.594980239868164,"flow":1087.763671875,"abs_flow":1087.763671875,"to_logit":false},{"source":"22_3064_10","target":"21_5943_10","weight":4.597236156463623,"flow":268.9277648925781,"abs_flow":268.9277648925781,"to_logit":false},{"source":"22_3064_10","target":"E_6037_4","weight":2.6354246139526367,"flow":154.16629028320312,"abs_flow":154.16629028320312,"to_logit":false},{"source":"22_3064_10","target":"E_2329_7","weight":1.8553495407104492,"flow":108.53368377685547,"abs_flow":108.53368377685547,"to_logit":false},{"source":"22_3064_10","target":"E_26865_9","weight":37.96367263793945,"flow":2220.78759765625,"abs_flow":2220.78759765625,"to_logit":false},{"source":"22_3064_10","target":"27_22605_10","weight":0.35509079694747925,"flow":20.771995544433594,"abs_flow":20.771995544433594,"to_logit":true},{"source":"22_3551_10","target":"16_25_9","weight":4.538783073425293,"flow":219.4783935546875,"abs_flow":219.4783935546875,"to_logit":false},{"source":"22_3551_10","target":"19_1445_10","weight":6.270290851593018,"flow":303.20758056640625,"abs_flow":303.20758056640625,"to_logit":false},{"source":"22_3551_10","target":"19_7477_10","weight":7.943295478820801,"flow":384.1077575683594,"abs_flow":384.1077575683594,"to_logit":false},{"source":"22_3551_10","target":"20_15589_9","weight":4.511752128601074,"flow":218.17127990722656,"abs_flow":218.17127990722656,"to_logit":false},{"source":"22_3551_10","target":"20_5916_10","weight":3.7645583152770996,"flow":182.03981018066406,"abs_flow":182.03981018066406,"to_logit":false},{"source":"22_3551_10","target":"20_15589_10","weight":12.892499923706055,"flow":623.4325561523438,"abs_flow":623.4325561523438,"to_logit":false},{"source":"22_3551_10","target":"21_5943_10","weight":5.086687088012695,"flow":245.97296142578125,"abs_flow":245.97296142578125,"to_logit":false},{"source":"22_3551_10","target":"E_26865_9","weight":20.47675323486328,"flow":990.1784057617188,"abs_flow":990.1784057617188,"to_logit":false},{"source":"22_3551_10","target":"27_22605_10","weight":0.39958977699279785,"flow":19.322650909423828,"abs_flow":19.322650909423828,"to_logit":true},{"source":"22_4999_10","target":"18_5495_10","weight":1.0163097381591797,"flow":38.08556365966797,"abs_flow":38.08556365966797,"to_logit":false},{"source":"22_4999_10","target":"19_1445_10","weight":3.435203790664673,"flow":128.73208618164062,"abs_flow":128.73208618164062,"to_logit":false},{"source":"22_4999_10","target":"19_2695_10","weight":2.709576368331909,"flow":101.53965759277344,"abs_flow":101.53965759277344,"to_logit":false},{"source":"22_4999_10","target":"21_5943_10","weight":9.23269271850586,"flow":345.9892883300781,"abs_flow":345.9892883300781,"to_logit":false},{"source":"22_4999_10","target":"21_14975_10","weight":-0.5842329859733582,"flow":-21.893760681152344,"abs_flow":21.893760681152344,"to_logit":false},{"source":"22_4999_10","target":"E_2329_7","weight":2.3999032974243164,"flow":89.93485260009766,"abs_flow":89.93485260009766,"to_logit":false},{"source":"22_4999_10","target":"E_26865_9","weight":3.124014139175415,"flow":117.07044982910156,"abs_flow":117.07044982910156,"to_logit":false},{"source":"22_4999_10","target":"27_22605_10","weight":0.340268611907959,"flow":12.751350402832031,"abs_flow":12.751350402832031,"to_logit":true},{"source":"22_11718_10","target":"16_25_9","weight":5.081372261047363,"flow":174.8020477294922,"abs_flow":174.8020477294922,"to_logit":false},{"source":"22_11718_10","target":"20_15589_9","weight":4.434418201446533,"flow":152.5464630126953,"abs_flow":152.5464630126953,"to_logit":false},{"source":"22_11718_10","target":"20_114_10","weight":1.5036828517913818,"flow":51.72753143310547,"abs_flow":51.72753143310547,"to_logit":false},{"source":"22_11718_10","target":"20_15589_10","weight":12.906230926513672,"flow":443.9815368652344,"abs_flow":443.9815368652344,"to_logit":false},{"source":"22_11718_10","target":"21_5943_10","weight":5.973958492279053,"flow":205.50750732421875,"abs_flow":205.50750732421875,"to_logit":false},{"source":"22_11718_10","target":"E_6037_4","weight":4.063055038452148,"flow":139.7713623046875,"abs_flow":139.7713623046875,"to_logit":false},{"source":"22_11718_10","target":"E_2329_7","weight":1.485029697418213,"flow":51.08584976196289,"abs_flow":51.08584976196289,"to_logit":false},{"source":"22_11718_10","target":"E_26865_9","weight":13.790407180786133,"flow":474.397705078125,"abs_flow":474.397705078125,"to_logit":false},{"source":"22_11718_10","target":"27_22605_10","weight":0.3581143021583557,"flow":12.319332122802734,"abs_flow":12.319332122802734,"to_logit":true},{"source":"23_2288_10","target":"16_25_9","weight":3.1485533714294434,"flow":46.778812408447266,"abs_flow":46.778812408447266,"to_logit":false},{"source":"23_2288_10","target":"20_15589_9","weight":2.87143874168396,"flow":42.66165542602539,"abs_flow":42.66165542602539,"to_logit":false},{"source":"23_2288_10","target":"20_15589_10","weight":12.393865585327148,"flow":184.1386260986328,"abs_flow":184.1386260986328,"to_logit":false},{"source":"23_2288_10","target":"22_11718_10","weight":-2.5720198154449463,"flow":-38.21311569213867,"abs_flow":38.21311569213867,"to_logit":false},{"source":"23_2288_10","target":"E_6037_4","weight":2.470679759979248,"flow":36.707481384277344,"abs_flow":36.707481384277344,"to_logit":false},{"source":"23_2288_10","target":"E_26865_9","weight":9.05417537689209,"flow":134.52005004882812,"abs_flow":134.52005004882812,"to_logit":false},{"source":"23_2288_10","target":"27_22605_10","weight":0.4864015579223633,"flow":7.226584434509277,"abs_flow":7.226584434509277,"to_logit":true},{"source":"23_6617_10","target":"18_8959_10","weight":2.7824182510375977,"flow":25.33339500427246,"abs_flow":25.33339500427246,"to_logit":false},{"source":"23_6617_10","target":"19_37_10","weight":2.6141645908355713,"flow":23.801475524902344,"abs_flow":23.801475524902344,"to_logit":false},{"source":"23_6617_10","target":"21_5943_10","weight":11.832956314086914,"flow":107.7368392944336,"abs_flow":107.7368392944336,"to_logit":false},{"source":"23_6617_10","target":"21_14975_10","weight":1.6123250722885132,"flow":14.679916381835938,"abs_flow":14.679916381835938,"to_logit":false},{"source":"23_6617_10","target":"22_31_10","weight":-1.949304461479187,"flow":-17.748050689697266,"abs_flow":17.748050689697266,"to_logit":false},{"source":"23_6617_10","target":"E_26865_9","weight":1.7773832082748413,"flow":16.1827392578125,"abs_flow":16.1827392578125,"to_logit":false},{"source":"23_6617_10","target":"27_22605_10","weight":0.4076133370399475,"flow":3.71124267578125,"abs_flow":3.71124267578125,"to_logit":true},{"source":"23_11444_10","target":"19_1445_10","weight":4.998326301574707,"flow":157.71469116210938,"abs_flow":157.71469116210938,"to_logit":false},{"source":"23_11444_10","target":"20_114_10","weight":2.581712484359741,"flow":81.46206665039062,"abs_flow":81.46206665039062,"to_logit":false},{"source":"23_11444_10","target":"20_15589_10","weight":4.450418472290039,"flow":140.42626953125,"abs_flow":140.42626953125,"to_logit":false},{"source":"23_11444_10","target":"21_5943_10","weight":10.126230239868164,"flow":319.51800537109375,"abs_flow":319.51800537109375,"to_logit":false},{"source":"23_11444_10","target":"22_3064_10","weight":-2.6634225845336914,"flow":-84.0403060913086,"abs_flow":84.0403060913086,"to_logit":false},{"source":"23_11444_10","target":"22_4999_10","weight":4.6027679443359375,"flow":145.23342895507812,"abs_flow":145.23342895507812,"to_logit":false},{"source":"23_11444_10","target":"E_6037_4","weight":3.0636065006256104,"flow":96.6675033569336,"abs_flow":96.6675033569336,"to_logit":false},{"source":"23_11444_10","target":"E_2329_7","weight":2.405794858932495,"flow":75.91124725341797,"abs_flow":75.91124725341797,"to_logit":false},{"source":"23_11444_10","target":"E_26865_9","weight":7.225915908813477,"flow":228.0029296875,"abs_flow":228.0029296875,"to_logit":false},{"source":"23_11444_10","target":"27_22605_10","weight":0.39767858386039734,"flow":12.548151016235352,"abs_flow":12.548151016235352,"to_logit":true},{"source":"23_12237_10","target":"16_25_9","weight":3.0013465881347656,"flow":163.39404296875,"abs_flow":163.39404296875,"to_logit":false},{"source":"23_12237_10","target":"18_1437_10","weight":0.8135946989059448,"flow":44.29229736328125,"abs_flow":44.29229736328125,"to_logit":false},{"source":"23_12237_10","target":"18_3852_10","weight":0.9148576855659485,"flow":49.805076599121094,"abs_flow":49.805076599121094,"to_logit":false},{"source":"23_12237_10","target":"19_7477_9","weight":1.0337278842926025,"flow":56.27640151977539,"abs_flow":56.27640151977539,"to_logit":false},{"source":"23_12237_10","target":"19_37_10","weight":1.3000199794769287,"flow":70.77340698242188,"abs_flow":70.77340698242188,"to_logit":false},{"source":"23_12237_10","target":"19_1445_10","weight":5.398491859436035,"flow":293.8952331542969,"abs_flow":293.8952331542969,"to_logit":false},{"source":"23_12237_10","target":"19_2695_10","weight":3.3174872398376465,"flow":180.60482788085938,"abs_flow":180.60482788085938,"to_logit":false},{"source":"23_12237_10","target":"19_7477_10","weight":2.2576606273651123,"flow":122.90760040283203,"abs_flow":122.90760040283203,"to_logit":false},{"source":"23_12237_10","target":"20_15589_9","weight":1.63408625125885,"flow":88.9600601196289,"abs_flow":88.9600601196289,"to_logit":false},{"source":"23_12237_10","target":"20_15589_10","weight":6.563108444213867,"flow":357.2972412109375,"abs_flow":357.2972412109375,"to_logit":false},{"source":"23_12237_10","target":"21_5943_10","weight":10.825813293457031,"flow":589.3599243164062,"abs_flow":589.3599243164062,"to_logit":false},{"source":"23_12237_10","target":"21_6316_10","weight":0.4013117849826813,"flow":21.84751319885254,"abs_flow":21.84751319885254,"to_logit":false},{"source":"23_12237_10","target":"21_6795_10","weight":-1.1382580995559692,"flow":-61.9670524597168,"abs_flow":61.9670524597168,"to_logit":false},{"source":"23_12237_10","target":"22_31_10","weight":-1.676090955734253,"flow":-91.2468032836914,"abs_flow":91.2468032836914,"to_logit":false},{"source":"23_12237_10","target":"22_4999_10","weight":6.507913589477539,"flow":354.29241943359375,"abs_flow":354.29241943359375,"to_logit":false},{"source":"23_12237_10","target":"22_11718_10","weight":0.7401479482650757,"flow":40.29383850097656,"abs_flow":40.29383850097656,"to_logit":false},{"source":"23_12237_10","target":"E_6037_4","weight":2.685319423675537,"flow":146.189453125,"abs_flow":146.189453125,"to_logit":false},{"source":"23_12237_10","target":"E_2329_7","weight":2.0699963569641113,"flow":112.69110870361328,"abs_flow":112.69110870361328,"to_logit":false},{"source":"23_12237_10","target":"E_26865_9","weight":7.034776210784912,"flow":382.9749450683594,"abs_flow":382.9749450683594,"to_logit":false},{"source":"23_12237_10","target":"27_22605_10","weight":0.2937966287136078,"flow":15.99436092376709,"abs_flow":15.99436092376709,"to_logit":true},{"source":"23_12918_10","target":"20_15589_9","weight":1.7498018741607666,"flow":32.33941650390625,"abs_flow":32.33941650390625,"to_logit":false},{"source":"23_12918_10","target":"20_114_10","weight":1.7739338874816895,"flow":32.78541946411133,"abs_flow":32.78541946411133,"to_logit":false},{"source":"23_12918_10","target":"20_15589_10","weight":8.661264419555664,"flow":160.07540893554688,"abs_flow":160.07540893554688,"to_logit":false},{"source":"23_12918_10","target":"22_3551_10","weight":1.651129961013794,"flow":30.51578712463379,"abs_flow":30.51578712463379,"to_logit":false},{"source":"23_12918_10","target":"22_11718_10","weight":9.385502815246582,"flow":173.4606170654297,"abs_flow":173.4606170654297,"to_logit":false},{"source":"23_12918_10","target":"E_6037_4","weight":-1.803680181503296,"flow":-33.33518600463867,"abs_flow":33.33518600463867,"to_logit":false},{"source":"23_12918_10","target":"E_2329_7","weight":2.363133430480957,"flow":43.67486572265625,"abs_flow":43.67486572265625,"to_logit":false},{"source":"23_12918_10","target":"E_26865_9","weight":6.303287982940674,"flow":116.49585723876953,"abs_flow":116.49585723876953,"to_logit":false},{"source":"23_12918_10","target":"27_22605_10","weight":0.4413743019104004,"flow":8.157374382019043,"abs_flow":8.157374382019043,"to_logit":true},{"source":"23_13193_10","target":"18_1026_10","weight":2.594093084335327,"flow":68.81767272949219,"abs_flow":68.81767272949219,"to_logit":false},{"source":"23_13193_10","target":"19_7477_10","weight":4.986856460571289,"flow":132.29434204101562,"abs_flow":132.29434204101562,"to_logit":false},{"source":"23_13193_10","target":"21_5943_10","weight":7.846765518188477,"flow":208.1637420654297,"abs_flow":208.1637420654297,"to_logit":false},{"source":"23_13193_10","target":"22_3064_10","weight":-4.078812599182129,"flow":-108.20520782470703,"abs_flow":108.20520782470703,"to_logit":false},{"source":"23_13193_10","target":"22_4999_10","weight":4.102260112762451,"flow":108.82723236083984,"abs_flow":108.82723236083984,"to_logit":false},{"source":"23_13193_10","target":"E_6037_4","weight":9.837718963623047,"flow":260.98095703125,"abs_flow":260.98095703125,"to_logit":false},{"source":"23_13193_10","target":"E_26865_9","weight":8.000581741333008,"flow":212.2442626953125,"abs_flow":212.2442626953125,"to_logit":false},{"source":"23_13193_10","target":"27_22605_10","weight":0.39185357093811035,"flow":10.395328521728516,"abs_flow":10.395328521728516,"to_logit":true},{"source":"23_13541_10","target":"20_5916_10","weight":-2.4606826305389404,"flow":-32.91610336303711,"abs_flow":32.91610336303711,"to_logit":false},{"source":"23_13541_10","target":"21_5943_10","weight":4.057413101196289,"flow":54.27527618408203,"abs_flow":54.27527618408203,"to_logit":false},{"source":"23_13541_10","target":"22_3064_10","weight":-3.4117815494537354,"flow":-45.63877868652344,"abs_flow":45.63877868652344,"to_logit":false},{"source":"23_13541_10","target":"27_22605_10","weight":0.4482012093067169,"flow":5.9955058097839355,"abs_flow":5.9955058097839355,"to_logit":true},{"source":"23_13841_10","target":"19_1445_10","weight":3.51188063621521,"flow":84.11481475830078,"abs_flow":84.11481475830078,"to_logit":false},{"source":"23_13841_10","target":"19_7477_10","weight":3.1676087379455566,"flow":75.86898803710938,"abs_flow":75.86898803710938,"to_logit":false},{"source":"23_13841_10","target":"20_15589_9","weight":1.488546371459961,"flow":35.65291976928711,"abs_flow":35.65291976928711,"to_logit":false},{"source":"23_13841_10","target":"20_114_10","weight":1.4259638786315918,"flow":34.15397644042969,"abs_flow":34.15397644042969,"to_logit":false},{"source":"23_13841_10","target":"20_15589_10","weight":7.027546405792236,"flow":168.32029724121094,"abs_flow":168.32029724121094,"to_logit":false},{"source":"23_13841_10","target":"22_3064_10","weight":-1.3709545135498047,"flow":-32.83641815185547,"abs_flow":32.83641815185547,"to_logit":false},{"source":"23_13841_10","target":"22_3551_10","weight":12.45999526977539,"flow":298.43560791015625,"abs_flow":298.43560791015625,"to_logit":false},{"source":"23_13841_10","target":"22_11718_10","weight":2.2851312160491943,"flow":54.732322692871094,"abs_flow":54.732322692871094,"to_logit":false},{"source":"23_13841_10","target":"E_6037_4","weight":-2.6471736431121826,"flow":-63.403785705566406,"abs_flow":63.403785705566406,"to_logit":false},{"source":"23_13841_10","target":"E_26865_9","weight":5.830512046813965,"flow":139.64952087402344,"abs_flow":139.64952087402344,"to_logit":false},{"source":"23_13841_10","target":"27_22605_10","weight":0.41097232699394226,"flow":9.843404769897461,"abs_flow":9.843404769897461,"to_logit":true},{"source":"23_15366_10","target":"16_25_9","weight":3.5130743980407715,"flow":80.97565460205078,"abs_flow":80.97565460205078,"to_logit":false},{"source":"23_15366_10","target":"19_1445_10","weight":5.756706714630127,"flow":132.69091796875,"abs_flow":132.69091796875,"to_logit":false},{"source":"23_15366_10","target":"19_2439_10","weight":3.2472527027130127,"flow":74.84851837158203,"abs_flow":74.84851837158203,"to_logit":false},{"source":"23_15366_10","target":"20_15589_9","weight":3.695241928100586,"flow":85.17457580566406,"abs_flow":85.17457580566406,"to_logit":false},{"source":"23_15366_10","target":"20_15589_10","weight":14.152438163757324,"flow":326.2108154296875,"abs_flow":326.2108154296875,"to_logit":false},{"source":"23_15366_10","target":"21_5943_10","weight":4.812280178070068,"flow":110.92208099365234,"abs_flow":110.92208099365234,"to_logit":false},{"source":"23_15366_10","target":"E_6037_4","weight":-5.743223190307617,"flow":-132.380126953125,"abs_flow":132.380126953125,"to_logit":false},{"source":"23_15366_10","target":"E_2329_7","weight":2.7792248725891113,"flow":64.0605697631836,"abs_flow":64.0605697631836,"to_logit":false},{"source":"23_15366_10","target":"E_26865_9","weight":7.855679988861084,"flow":181.0718231201172,"abs_flow":181.0718231201172,"to_logit":false},{"source":"23_15366_10","target":"27_22605_10","weight":0.410140722990036,"flow":9.453660011291504,"abs_flow":9.453660011291504,"to_logit":true},{"source":"24_709_10","target":"22_11718_10","weight":4.301175594329834,"flow":44.77769088745117,"abs_flow":44.77769088745117,"to_logit":false},{"source":"24_709_10","target":"27_22605_10","weight":0.5277593731880188,"flow":5.49427604675293,"abs_flow":5.49427604675293,"to_logit":true},{"source":"24_6044_10","target":"16_25_9","weight":9.828361511230469,"flow":541.293701171875,"abs_flow":541.293701171875,"to_logit":false},{"source":"24_6044_10","target":"18_1437_10","weight":1.5885077714920044,"flow":87.48652648925781,"abs_flow":87.48652648925781,"to_logit":false},{"source":"24_6044_10","target":"18_8959_10","weight":-2.4471547603607178,"flow":-134.77621459960938,"abs_flow":134.77621459960938,"to_logit":false},{"source":"24_6044_10","target":"19_7477_9","weight":0.9255338907241821,"flow":50.97346496582031,"abs_flow":50.97346496582031,"to_logit":false},{"source":"24_6044_10","target":"20_15589_9","weight":9.006016731262207,"flow":496.0033264160156,"abs_flow":496.0033264160156,"to_logit":false},{"source":"24_6044_10","target":"20_114_10","weight":1.1475903987884521,"flow":63.20315170288086,"abs_flow":63.20315170288086,"to_logit":false},{"source":"24_6044_10","target":"20_6026_10","weight":-0.6829328536987305,"flow":-37.61229705810547,"abs_flow":37.61229705810547,"to_logit":false},{"source":"24_6044_10","target":"20_7507_10","weight":1.2595325708389282,"flow":69.36833190917969,"abs_flow":69.36833190917969,"to_logit":false},{"source":"24_6044_10","target":"20_15276_10","weight":0.6452578902244568,"flow":35.53736114501953,"abs_flow":35.53736114501953,"to_logit":false},{"source":"24_6044_10","target":"20_15589_10","weight":28.648263931274414,"flow":1577.79345703125,"abs_flow":1577.79345703125,"to_logit":false},{"source":"24_6044_10","target":"21_6795_10","weight":-1.997184157371521,"flow":-109.9942398071289,"abs_flow":109.9942398071289,"to_logit":false},{"source":"24_6044_10","target":"21_14975_10","weight":-0.6248428821563721,"flow":-34.41300964355469,"abs_flow":34.41300964355469,"to_logit":false},{"source":"24_6044_10","target":"22_3064_10","weight":-3.294461727142334,"flow":-181.4413604736328,"abs_flow":181.4413604736328,"to_logit":false},{"source":"24_6044_10","target":"22_11718_10","weight":3.1807854175567627,"flow":175.18067932128906,"abs_flow":175.18067932128906,"to_logit":false},{"source":"24_6044_10","target":"23_2288_10","weight":-1.1550222635269165,"flow":-63.61246109008789,"abs_flow":63.61246109008789,"to_logit":false},{"source":"24_6044_10","target":"23_6617_10","weight":-0.9258213043212891,"flow":-50.989295959472656,"abs_flow":50.989295959472656,"to_logit":false},{"source":"24_6044_10","target":"23_11444_10","weight":1.344796061515808,"flow":74.0641860961914,"abs_flow":74.0641860961914,"to_logit":false},{"source":"24_6044_10","target":"23_12237_10","weight":3.024966239929199,"flow":166.59898376464844,"abs_flow":166.59898376464844,"to_logit":false},{"source":"24_6044_10","target":"23_12918_10","weight":-1.5812760591506958,"flow":-87.08824157714844,"abs_flow":87.08824157714844,"to_logit":false},{"source":"24_6044_10","target":"23_13193_10","weight":-1.858750581741333,"flow":-102.37005615234375,"abs_flow":102.37005615234375,"to_logit":false},{"source":"24_6044_10","target":"23_13841_10","weight":2.127284049987793,"flow":117.1594467163086,"abs_flow":117.1594467163086,"to_logit":false},{"source":"24_6044_10","target":"23_15366_10","weight":0.3742345869541168,"flow":20.610843658447266,"abs_flow":20.610843658447266,"to_logit":false},{"source":"24_6044_10","target":"E_6037_4","weight":-2.0371627807617188,"flow":-112.19605255126953,"abs_flow":112.19605255126953,"to_logit":false},{"source":"24_6044_10","target":"E_2329_7","weight":0.5221520662307739,"flow":28.757349014282227,"abs_flow":28.757349014282227,"to_logit":false},{"source":"24_6044_10","target":"E_26865_9","weight":24.815189361572266,"flow":1366.6881103515625,"abs_flow":1366.6881103515625,"to_logit":false},{"source":"24_6044_10","target":"27_22605_10","weight":0.26938262581825256,"flow":14.836156845092773,"abs_flow":14.836156845092773,"to_logit":true},{"source":"24_6394_10","target":"16_4298_10","weight":2.9734606742858887,"flow":77.181396484375,"abs_flow":77.181396484375,"to_logit":false},{"source":"24_6394_10","target":"18_3852_10","weight":1.0446058511734009,"flow":27.114580154418945,"abs_flow":27.114580154418945,"to_logit":false},{"source":"24_6394_10","target":"18_6101_10","weight":6.434849262237549,"flow":167.02781677246094,"abs_flow":167.02781677246094,"to_logit":false},{"source":"24_6394_10","target":"19_37_10","weight":2.104393243789673,"flow":54.62322235107422,"abs_flow":54.62322235107422,"to_logit":false},{"source":"24_6394_10","target":"19_1445_10","weight":4.982268333435059,"flow":129.3235321044922,"abs_flow":129.3235321044922,"to_logit":false},{"source":"24_6394_10","target":"19_2695_10","weight":5.8391852378845215,"flow":151.56631469726562,"abs_flow":151.56631469726562,"to_logit":false},{"source":"24_6394_10","target":"20_15589_9","weight":0.6286988258361816,"flow":16.31898307800293,"abs_flow":16.31898307800293,"to_logit":false},{"source":"24_6394_10","target":"20_5916_10","weight":-2.3516323566436768,"flow":-61.040748596191406,"abs_flow":61.040748596191406,"to_logit":false},{"source":"24_6394_10","target":"20_7507_10","weight":-0.7295539379119873,"flow":-18.936853408813477,"abs_flow":18.936853408813477,"to_logit":false},{"source":"24_6394_10","target":"21_5943_10","weight":30.412628173828125,"flow":789.4132080078125,"abs_flow":789.4132080078125,"to_logit":false},{"source":"24_6394_10","target":"22_31_10","weight":-1.3562836647033691,"flow":-35.2047233581543,"abs_flow":35.2047233581543,"to_logit":false},{"source":"24_6394_10","target":"22_3064_10","weight":-0.7974511981010437,"flow":-20.699247360229492,"abs_flow":20.699247360229492,"to_logit":false},{"source":"24_6394_10","target":"22_3551_10","weight":-0.6799386143684387,"flow":-17.64900016784668,"abs_flow":17.64900016784668,"to_logit":false},{"source":"24_6394_10","target":"23_6617_10","weight":-2.171757698059082,"flow":-56.37178421020508,"abs_flow":56.37178421020508,"to_logit":false},{"source":"24_6394_10","target":"23_12237_10","weight":3.39792537689209,"flow":88.1991195678711,"abs_flow":88.1991195678711,"to_logit":false},{"source":"24_6394_10","target":"23_12918_10","weight":1.481680989265442,"flow":38.459632873535156,"abs_flow":38.459632873535156,"to_logit":false},{"source":"24_6394_10","target":"23_13541_10","weight":0.624212920665741,"flow":16.202543258666992,"abs_flow":16.202543258666992,"to_logit":false},{"source":"24_6394_10","target":"23_15366_10","weight":-0.8274863958358765,"flow":-21.478862762451172,"abs_flow":21.478862762451172,"to_logit":false},{"source":"24_6394_10","target":"E_2329_7","weight":1.293032169342041,"flow":33.56291961669922,"abs_flow":33.56291961669922,"to_logit":false},{"source":"24_6394_10","target":"E_26865_9","weight":2.0600762367248535,"flow":53.472896575927734,"abs_flow":53.472896575927734,"to_logit":false},{"source":"24_6394_10","target":"27_22605_10","weight":0.31806522607803345,"flow":8.255941390991211,"abs_flow":8.255941390991211,"to_logit":true},{"source":"24_13277_10","target":"18_3852_10","weight":1.321632742881775,"flow":154.05982971191406,"abs_flow":154.05982971191406,"to_logit":false},{"source":"24_13277_10","target":"19_37_10","weight":1.738778829574585,"flow":202.68563842773438,"abs_flow":202.68563842773438,"to_logit":false},{"source":"24_13277_10","target":"21_5943_10","weight":3.9042396545410156,"flow":455.1086730957031,"abs_flow":455.1086730957031,"to_logit":false},{"source":"24_13277_10","target":"22_3064_10","weight":3.229508638381958,"flow":376.4567565917969,"abs_flow":376.4567565917969,"to_logit":false},{"source":"24_13277_10","target":"22_3551_10","weight":1.62317955493927,"flow":189.21047973632812,"abs_flow":189.21047973632812,"to_logit":false},{"source":"24_13277_10","target":"22_4999_10","weight":3.5516724586486816,"flow":414.01068115234375,"abs_flow":414.01068115234375,"to_logit":false},{"source":"24_13277_10","target":"22_11718_10","weight":2.6902170181274414,"flow":313.59271240234375,"abs_flow":313.59271240234375,"to_logit":false},{"source":"24_13277_10","target":"23_13193_10","weight":1.4559786319732666,"flow":169.72024536132812,"abs_flow":169.72024536132812,"to_logit":false},{"source":"24_13277_10","target":"23_13541_10","weight":1.4694461822509766,"flow":171.29013061523438,"abs_flow":171.29013061523438,"to_logit":false},{"source":"24_13277_10","target":"E_6037_4","weight":4.66817569732666,"flow":544.1589965820312,"abs_flow":544.1589965820312,"to_logit":false},{"source":"24_13277_10","target":"27_22605_10","weight":0.3207222521305084,"flow":37.38589096069336,"abs_flow":37.38589096069336,"to_logit":true},{"source":"24_15013_10","target":"19_2695_10","weight":1.3203564882278442,"flow":39.047306060791016,"abs_flow":39.047306060791016,"to_logit":false},{"source":"24_15013_10","target":"21_5943_10","weight":4.703531265258789,"flow":139.09896850585938,"abs_flow":139.09896850585938,"to_logit":false},{"source":"24_15013_10","target":"22_4999_10","weight":5.133525848388672,"flow":151.81532287597656,"abs_flow":151.81532287597656,"to_logit":false},{"source":"24_15013_10","target":"23_12237_10","weight":1.6238049268722534,"flow":48.021278381347656,"abs_flow":48.021278381347656,"to_logit":false},{"source":"24_15013_10","target":"E_6037_4","weight":1.1017756462097168,"flow":32.58314895629883,"abs_flow":32.58314895629883,"to_logit":false},{"source":"24_15013_10","target":"E_2329_7","weight":1.3707637786865234,"flow":40.53801727294922,"abs_flow":40.53801727294922,"to_logit":false},{"source":"24_15013_10","target":"E_26865_9","weight":2.6880626678466797,"flow":79.4948959350586,"abs_flow":79.4948959350586,"to_logit":false},{"source":"24_15013_10","target":"27_22605_10","weight":0.39671972393989563,"flow":11.73231315612793,"abs_flow":11.73231315612793,"to_logit":true},{"source":"24_15627_10","target":"20_15589_10","weight":3.977311134338379,"flow":105.10388946533203,"abs_flow":105.10388946533203,"to_logit":false},{"source":"24_15627_10","target":"22_3551_10","weight":10.922816276550293,"flow":288.6448669433594,"abs_flow":288.6448669433594,"to_logit":false},{"source":"24_15627_10","target":"23_13841_10","weight":4.957973957061768,"flow":131.0187530517578,"abs_flow":131.0187530517578,"to_logit":false},{"source":"24_15627_10","target":"E_26865_9","weight":4.452826976776123,"flow":117.66980743408203,"abs_flow":117.66980743408203,"to_logit":false},{"source":"24_15627_10","target":"27_22605_10","weight":0.5334911942481995,"flow":14.097966194152832,"abs_flow":14.097966194152832,"to_logit":true},{"source":"24_15694_10","target":"20_5916_10","weight":-1.8395438194274902,"flow":-28.49942398071289,"abs_flow":28.49942398071289,"to_logit":false},{"source":"24_15694_10","target":"20_15589_10","weight":4.842749118804932,"flow":75.02706146240234,"abs_flow":75.02706146240234,"to_logit":false},{"source":"24_15694_10","target":"22_3064_10","weight":2.150486469268799,"flow":33.31675338745117,"abs_flow":33.31675338745117,"to_logit":false},{"source":"24_15694_10","target":"22_3551_10","weight":2.648918628692627,"flow":41.03879165649414,"abs_flow":41.03879165649414,"to_logit":false},{"source":"24_15694_10","target":"22_4999_10","weight":-2.30035138130188,"flow":-35.63855743408203,"abs_flow":35.63855743408203,"to_logit":false},{"source":"24_15694_10","target":"23_6617_10","weight":2.5717051029205322,"flow":39.84254837036133,"abs_flow":39.84254837036133,"to_logit":false},{"source":"24_15694_10","target":"23_13193_10","weight":3.3028931617736816,"flow":51.170597076416016,"abs_flow":51.170597076416016,"to_logit":false},{"source":"24_15694_10","target":"E_6037_4","weight":2.638582229614258,"flow":40.87865447998047,"abs_flow":40.87865447998047,"to_logit":false},{"source":"24_15694_10","target":"E_2329_7","weight":2.0668468475341797,"flow":32.02095413208008,"abs_flow":32.02095413208008,"to_logit":false},{"source":"24_15694_10","target":"E_26865_9","weight":2.1311230659484863,"flow":33.016761779785156,"abs_flow":33.016761779785156,"to_logit":false},{"source":"24_15694_10","target":"27_22605_10","weight":0.38570302724838257,"flow":5.975565433502197,"abs_flow":5.975565433502197,"to_logit":true},{"source":"24_16258_10","target":"18_8959_10","weight":2.831620931625366,"flow":62.753875732421875,"abs_flow":62.753875732421875,"to_logit":false},{"source":"24_16258_10","target":"20_5916_10","weight":-2.9281251430511475,"flow":-64.89258575439453,"abs_flow":64.89258575439453,"to_logit":false},{"source":"24_16258_10","target":"23_12237_10","weight":3.5438499450683594,"flow":78.53816986083984,"abs_flow":78.53816986083984,"to_logit":false},{"source":"24_16258_10","target":"E_2329_7","weight":4.218404769897461,"flow":93.48753356933594,"abs_flow":93.48753356933594,"to_logit":false},{"source":"24_16258_10","target":"E_26865_9","weight":5.928192138671875,"flow":131.37953186035156,"abs_flow":131.37953186035156,"to_logit":false},{"source":"24_16258_10","target":"27_22605_10","weight":0.4341493248939514,"flow":9.621540069580078,"abs_flow":9.621540069580078,"to_logit":true},{"source":"25_553_10","target":"22_3551_10","weight":1.3677456378936768,"flow":70.04597473144531,"abs_flow":70.04597473144531,"to_logit":false},{"source":"25_553_10","target":"23_12237_10","weight":1.6455789804458618,"flow":84.27458190917969,"abs_flow":84.27458190917969,"to_logit":false},{"source":"25_553_10","target":"24_13277_10","weight":6.208723545074463,"flow":317.96563720703125,"abs_flow":317.96563720703125,"to_logit":false},{"source":"25_553_10","target":"E_2329_7","weight":2.304518699645996,"flow":118.02067565917969,"abs_flow":118.02067565917969,"to_logit":false},{"source":"25_553_10","target":"E_26865_9","weight":-1.4036576747894287,"flow":-71.8851318359375,"abs_flow":71.8851318359375,"to_logit":false},{"source":"25_553_10","target":"27_22605_10","weight":0.3908545970916748,"flow":20.016727447509766,"abs_flow":20.016727447509766,"to_logit":true},{"source":"25_583_10","target":"19_1445_10","weight":3.026975393295288,"flow":75.77587127685547,"abs_flow":75.77587127685547,"to_logit":false},{"source":"25_583_10","target":"21_5943_10","weight":9.175859451293945,"flow":229.70413208007812,"abs_flow":229.70413208007812,"to_logit":false},{"source":"25_583_10","target":"22_3064_10","weight":-2.9001498222351074,"flow":-72.60098266601562,"abs_flow":72.60098266601562,"to_logit":false},{"source":"25_583_10","target":"23_12237_10","weight":2.574460744857788,"flow":64.44783020019531,"abs_flow":64.44783020019531,"to_logit":false},{"source":"25_583_10","target":"24_6044_10","weight":-3.1644134521484375,"flow":-79.2164306640625,"abs_flow":79.2164306640625,"to_logit":false},{"source":"25_583_10","target":"24_6394_10","weight":-4.464544773101807,"flow":-111.7633056640625,"abs_flow":111.7633056640625,"to_logit":false},{"source":"25_583_10","target":"E_26865_9","weight":7.098998546600342,"flow":177.7129669189453,"abs_flow":177.7129669189453,"to_logit":false},{"source":"25_583_10","target":"27_22605_10","weight":0.4399704337120056,"flow":11.014012336730957,"abs_flow":11.014012336730957,"to_logit":true},{"source":"25_762_10","target":"21_5943_10","weight":5.168634414672852,"flow":57.98175811767578,"abs_flow":57.98175811767578,"to_logit":false},{"source":"25_762_10","target":"27_22605_10","weight":0.557261049747467,"flow":6.25135612487793,"abs_flow":6.25135612487793,"to_logit":true},{"source":"25_2687_10","target":"21_5943_10","weight":3.054405450820923,"flow":31.770069122314453,"abs_flow":31.770069122314453,"to_logit":false},{"source":"25_2687_10","target":"27_22605_10","weight":0.5371884107589722,"flow":5.587507247924805,"abs_flow":5.587507247924805,"to_logit":true},{"source":"25_4259_10","target":"19_7477_10","weight":1.0917730331420898,"flow":31.888526916503906,"abs_flow":31.888526916503906,"to_logit":false},{"source":"25_4259_10","target":"20_114_10","weight":1.028937578201294,"flow":30.0532283782959,"abs_flow":30.0532283782959,"to_logit":false},{"source":"25_4259_10","target":"20_15589_10","weight":4.365416049957275,"flow":127.50515747070312,"abs_flow":127.50515747070312,"to_logit":false},{"source":"25_4259_10","target":"22_3064_10","weight":-0.9043932557106018,"flow":-26.41553497314453,"abs_flow":26.41553497314453,"to_logit":false},{"source":"25_4259_10","target":"22_3551_10","weight":4.276088714599609,"flow":124.89608001708984,"abs_flow":124.89608001708984,"to_logit":false},{"source":"25_4259_10","target":"22_11718_10","weight":2.350358009338379,"flow":68.64929962158203,"abs_flow":68.64929962158203,"to_logit":false},{"source":"25_4259_10","target":"23_13193_10","weight":1.4547054767608643,"flow":42.48906707763672,"abs_flow":42.48906707763672,"to_logit":false},{"source":"25_4259_10","target":"23_13841_10","weight":2.987447500228882,"flow":87.2574234008789,"abs_flow":87.2574234008789,"to_logit":false},{"source":"25_4259_10","target":"23_15366_10","weight":1.7688606977462769,"flow":51.6649169921875,"abs_flow":51.6649169921875,"to_logit":false},{"source":"25_4259_10","target":"24_6044_10","weight":4.623892784118652,"flow":135.05474853515625,"abs_flow":135.05474853515625,"to_logit":false},{"source":"25_4259_10","target":"24_15627_10","weight":3.0342886447906494,"flow":88.62556457519531,"abs_flow":88.62556457519531,"to_logit":false},{"source":"25_4259_10","target":"E_6037_4","weight":1.407471776008606,"flow":41.10946273803711,"abs_flow":41.10946273803711,"to_logit":false},{"source":"25_4259_10","target":"E_26865_9","weight":1.6095056533813477,"flow":47.01047134399414,"abs_flow":47.01047134399414,"to_logit":false},{"source":"25_4259_10","target":"27_22605_10","weight":0.3813396096229553,"flow":11.138175010681152,"abs_flow":11.138175010681152,"to_logit":true},{"source":"25_4679_10","target":"19_2695_10","weight":5.029956340789795,"flow":83.55860900878906,"abs_flow":83.55860900878906,"to_logit":false},{"source":"25_4679_10","target":"21_5943_10","weight":17.71652603149414,"flow":294.31036376953125,"abs_flow":294.31036376953125,"to_logit":false},{"source":"25_4679_10","target":"24_6394_10","weight":-8.841166496276855,"flow":-146.8711700439453,"abs_flow":146.8711700439453,"to_logit":false},{"source":"25_4679_10","target":"E_6037_4","weight":4.618385314941406,"flow":76.72151184082031,"abs_flow":76.72151184082031,"to_logit":false},{"source":"25_4679_10","target":"E_26865_9","weight":6.222269058227539,"flow":103.36553955078125,"abs_flow":103.36553955078125,"to_logit":false},{"source":"25_4679_10","target":"27_22605_10","weight":0.47681233286857605,"flow":7.920898914337158,"abs_flow":7.920898914337158,"to_logit":true},{"source":"25_4717_10","target":"24_13277_10","weight":16.398332595825195,"flow":513.6823120117188,"abs_flow":513.6823120117188,"to_logit":false},{"source":"25_4717_10","target":"E_26865_9","weight":12.075050354003906,"flow":378.2542724609375,"abs_flow":378.2542724609375,"to_logit":false},{"source":"25_4717_10","target":"27_22605_10","weight":0.5018808841705322,"flow":15.721556663513184,"abs_flow":15.721556663513184,"to_logit":true},{"source":"25_4886_10","target":"21_5943_10","weight":3.7747206687927246,"flow":105.37761688232422,"abs_flow":105.37761688232422,"to_logit":false},{"source":"25_4886_10","target":"24_13277_10","weight":5.682527542114258,"flow":158.63722229003906,"abs_flow":158.63722229003906,"to_logit":false},{"source":"25_4886_10","target":"27_22605_10","weight":0.4710070490837097,"flow":13.148946762084961,"abs_flow":13.148946762084961,"to_logit":true},{"source":"25_13300_10","target":"16_25_9","weight":8.73577880859375,"flow":196.60931396484375,"abs_flow":196.60931396484375,"to_logit":false},{"source":"25_13300_10","target":"18_1437_10","weight":1.4189239740371704,"flow":31.934606552124023,"abs_flow":31.934606552124023,"to_logit":false},{"source":"25_13300_10","target":"19_7477_9","weight":1.8963069915771484,"flow":42.67869186401367,"abs_flow":42.67869186401367,"to_logit":false},{"source":"25_13300_10","target":"19_7477_10","weight":3.008134365081787,"flow":67.70171356201172,"abs_flow":67.70171356201172,"to_logit":false},{"source":"25_13300_10","target":"20_15589_9","weight":7.865391731262207,"flow":177.0201873779297,"abs_flow":177.0201873779297,"to_logit":false},{"source":"25_13300_10","target":"20_7507_10","weight":0.752458393573761,"flow":16.93498992919922,"abs_flow":16.93498992919922,"to_logit":false},{"source":"25_13300_10","target":"20_15589_10","weight":24.147571563720703,"flow":543.4703979492188,"abs_flow":543.4703979492188,"to_logit":false},{"source":"25_13300_10","target":"21_6795_10","weight":-1.4575088024139404,"flow":-32.80300521850586,"abs_flow":32.80300521850586,"to_logit":false},{"source":"25_13300_10","target":"22_3064_10","weight":-0.8580357432365417,"flow":-19.31113624572754,"abs_flow":19.31113624572754,"to_logit":false},{"source":"25_13300_10","target":"22_11718_10","weight":1.374138355255127,"flow":30.926652908325195,"abs_flow":30.926652908325195,"to_logit":false},{"source":"25_13300_10","target":"23_6617_10","weight":-0.9118720889091492,"flow":-20.522789001464844,"abs_flow":20.522789001464844,"to_logit":false},{"source":"25_13300_10","target":"23_11444_10","weight":0.7442216873168945,"flow":16.74961280822754,"abs_flow":16.74961280822754,"to_logit":false},{"source":"25_13300_10","target":"23_13193_10","weight":-0.8701788187026978,"flow":-19.584430694580078,"abs_flow":19.584430694580078,"to_logit":false},{"source":"25_13300_10","target":"23_15366_10","weight":-1.381798505783081,"flow":-31.09905242919922,"abs_flow":31.09905242919922,"to_logit":false},{"source":"25_13300_10","target":"24_6044_10","weight":-20.36635398864746,"flow":-458.3695373535156,"abs_flow":458.3695373535156,"to_logit":false},{"source":"25_13300_10","target":"24_15627_10","weight":-1.091808795928955,"flow":-24.57248306274414,"abs_flow":24.57248306274414,"to_logit":false},{"source":"25_13300_10","target":"E_6037_4","weight":-0.8194437026977539,"flow":-18.442575454711914,"abs_flow":18.442575454711914,"to_logit":false},{"source":"25_13300_10","target":"E_2329_7","weight":1.1751272678375244,"flow":26.44766616821289,"abs_flow":26.44766616821289,"to_logit":false},{"source":"25_13300_10","target":"E_26865_9","weight":26.353910446166992,"flow":593.1267700195312,"abs_flow":593.1267700195312,"to_logit":false},{"source":"25_13300_10","target":"27_22605_10","weight":0.3118090033531189,"flow":7.017640113830566,"abs_flow":7.017640113830566,"to_logit":true},{"source":"25_16302_10","target":"24_13277_10","weight":18.96278953552246,"flow":754.0111694335938,"abs_flow":754.0111694335938,"to_logit":false},{"source":"25_16302_10","target":"27_22605_10","weight":0.4197622239589691,"flow":16.690868377685547,"abs_flow":16.690868377685547,"to_logit":true},{"source":"E_6037_4","target":"27_22605_10","weight":0.04151672497391701,"flow":0.17236383259296417,"abs_flow":0.17236383259296417,"to_logit":true},{"source":"E_2329_7","target":"27_22605_10","weight":0.22769589722156525,"flow":5.184542179107666,"abs_flow":5.184542179107666,"to_logit":true},{"source":"E_26865_9","target":"27_22605_10","weight":0.1713559329509735,"flow":2.9362854957580566,"abs_flow":2.9362854957580566,"to_logit":true},{"source":"27_22605_10","target":"18_1437_10","weight":0.6335847973823547,"flow":28.537750244140625,"abs_flow":28.537750244140625,"to_logit":false},{"source":"27_22605_10","target":"20_15589_9","weight":1.6988146305084229,"flow":76.51753234863281,"abs_flow":76.51753234863281,"to_logit":false},{"source":"27_22605_10","target":"20_15589_10","weight":5.3125505447387695,"flow":239.2864227294922,"abs_flow":239.2864227294922,"to_logit":false},{"source":"27_22605_10","target":"21_5943_10","weight":3.1703598499298096,"flow":142.7984619140625,"abs_flow":142.7984619140625,"to_logit":false},{"source":"27_22605_10","target":"22_31_10","weight":0.356938898563385,"flow":16.0771427154541,"abs_flow":16.0771427154541,"to_logit":false},{"source":"27_22605_10","target":"22_3064_10","weight":-0.7311875224113464,"flow":-32.93394470214844,"abs_flow":32.93394470214844,"to_logit":false},{"source":"27_22605_10","target":"22_11718_10","weight":0.7735285758972168,"flow":34.84105682373047,"abs_flow":34.84105682373047,"to_logit":false},{"source":"27_22605_10","target":"23_6617_10","weight":-0.4015270173549652,"flow":-18.085468292236328,"abs_flow":18.085468292236328,"to_logit":false},{"source":"27_22605_10","target":"23_11444_10","weight":0.44968676567077637,"flow":20.25466537475586,"abs_flow":20.25466537475586,"to_logit":false},{"source":"27_22605_10","target":"23_12237_10","weight":2.811579942703247,"flow":126.63839721679688,"abs_flow":126.63839721679688,"to_logit":false},{"source":"27_22605_10","target":"23_12918_10","weight":-0.41886186599731445,"flow":-18.86625862121582,"abs_flow":18.86625862121582,"to_logit":false},{"source":"27_22605_10","target":"23_13193_10","weight":-0.4412710666656494,"flow":-19.875608444213867,"abs_flow":19.875608444213867,"to_logit":false},{"source":"27_22605_10","target":"23_13841_10","weight":0.4831389784812927,"flow":21.761411666870117,"abs_flow":21.761411666870117,"to_logit":false},{"source":"27_22605_10","target":"23_15366_10","weight":-0.4360692799091339,"flow":-19.641311645507812,"abs_flow":19.641311645507812,"to_logit":false},{"source":"27_22605_10","target":"24_709_10","weight":0.2091374695301056,"flow":9.41991138458252,"abs_flow":9.41991138458252,"to_logit":false},{"source":"27_22605_10","target":"24_6044_10","weight":-4.412521839141846,"flow":-198.74757385253906,"abs_flow":198.74757385253906,"to_logit":false},{"source":"27_22605_10","target":"24_6394_10","weight":-1.9216506481170654,"flow":-86.55445098876953,"abs_flow":86.55445098876953,"to_logit":false},{"source":"27_22605_10","target":"24_13277_10","weight":0.9817613363265991,"flow":44.220218658447266,"abs_flow":44.220218658447266,"to_logit":false},{"source":"27_22605_10","target":"24_15013_10","weight":0.5595006346702576,"flow":25.20087242126465,"abs_flow":25.20087242126465,"to_logit":false},{"source":"27_22605_10","target":"24_15694_10","weight":0.5085371732711792,"flow":22.9053897857666,"abs_flow":22.9053897857666,"to_logit":false},{"source":"27_22605_10","target":"24_16258_10","weight":-0.3414047360420227,"flow":-15.377456665039062,"abs_flow":15.377456665039062,"to_logit":false},{"source":"27_22605_10","target":"25_553_10","weight":-0.6268182992935181,"flow":-28.232975006103516,"abs_flow":28.232975006103516,"to_logit":false},{"source":"27_22605_10","target":"25_583_10","weight":0.36534610390663147,"flow":16.45581817626953,"abs_flow":16.45581817626953,"to_logit":false},{"source":"27_22605_10","target":"25_762_10","weight":0.15941742062568665,"flow":7.1804351806640625,"abs_flow":7.1804351806640625,"to_logit":false},{"source":"27_22605_10","target":"25_2687_10","weight":0.18782994151115417,"flow":8.460184097290039,"abs_flow":8.460184097290039,"to_logit":false},{"source":"27_22605_10","target":"25_4259_10","weight":0.6733392477035522,"flow":30.328359603881836,"abs_flow":30.328359603881836,"to_logit":false},{"source":"27_22605_10","target":"25_4679_10","weight":-0.2517860531806946,"flow":-11.340877532958984,"abs_flow":11.340877532958984,"to_logit":false},{"source":"27_22605_10","target":"25_4717_10","weight":0.1958162486553192,"flow":8.819900512695312,"abs_flow":8.819900512695312,"to_logit":false},{"source":"27_22605_10","target":"25_4886_10","weight":0.26245367527008057,"flow":11.821365356445312,"abs_flow":11.821365356445312,"to_logit":false},{"source":"27_22605_10","target":"25_13300_10","weight":-1.906113862991333,"flow":-85.85465240478516,"abs_flow":85.85465240478516,"to_logit":false},{"source":"27_22605_10","target":"25_16302_10","weight":0.2840636968612671,"flow":12.794717788696289,"abs_flow":12.794717788696289,"to_logit":false},{"source":"27_22605_10","target":"E_6037_4","weight":-0.47556591033935547,"flow":-21.420307159423828,"abs_flow":21.420307159423828,"to_logit":false},{"source":"27_22605_10","target":"E_2329_7","weight":0.42849838733673096,"flow":19.300304412841797,"abs_flow":19.300304412841797,"to_logit":false},{"source":"27_22605_10","target":"E_26865_9","weight":4.713507652282715,"flow":212.30450439453125,"abs_flow":212.30450439453125,"to_logit":false}]};
-const SUPERNODE_MAP = {"SN_00_L16_21":["16_4298_10","16_13497_10","17_7178_10","18_1026_10","18_3852_10","18_5495_10","18_6101_10","18_8959_10","18_16041_10","19_37_10","19_1445_10","19_2439_10","19_2695_10","20_5916_10","21_5943_10","21_6316_10","21_14975_10"],"SN_01_L16_23":["16_25_9","16_12678_9","18_1437_10","19_7477_9","19_7477_10","20_15589_9","20_114_10","20_7507_10","20_15276_10","20_15589_10","22_3551_10","22_11718_10","23_11444_10","23_13841_10"],"SN_02_L20_25":["20_6026_10","21_6795_10","22_31_10","22_3064_10","23_2288_10","23_6617_10","23_12918_10","23_13193_10","23_15366_10","24_6044_10","24_15627_10","24_16258_10","25_553_10","25_4679_10","25_13300_10"],"SN_03_L22_25":["22_4999_10","23_12237_10","23_13541_10","24_709_10","24_6394_10","24_13277_10","24_15013_10","24_15694_10","25_583_10","25_762_10","25_2687_10","25_4259_10","25_4717_10","25_4886_10","25_16302_10"],"SN_EMB":["E_6037_4","E_2329_7","E_26865_9"],"SN_LOGIT":["27_22605_10"]};
+const GRAPH_DATA    = {"nodes":[{"id":"1_89326_9","idx":0,"layer":1,"clerp":"Dallas","activation":9.1875,"influence":0.4841025769710541,"node_inf":0.6338451504707336,"node_rel":0.6352778077125549,"type":"transcoder","ctx_idx":9},{"id":"7_24743_9","idx":1,"layer":7,"clerp":"Texas legal matters","activation":3.515625,"influence":0.4604751169681549,"node_inf":0.6120493412017822,"node_rel":0.6976507902145386,"type":"transcoder","ctx_idx":9},{"id":"16_89970_9","idx":2,"layer":16,"clerp":"Texas","activation":2.40625,"influence":0.40106865763664246,"node_inf":0.5723963379859924,"node_rel":0.6424320340156555,"type":"transcoder","ctx_idx":9},{"id":"17_1822_10","idx":3,"layer":17,"clerp":"place names","activation":2.0625,"influence":0.4918775260448456,"node_inf":0.6403317451477051,"node_rel":0.5670413374900818,"type":"transcoder","ctx_idx":10},{"id":"17_98126_10","idx":4,"layer":17,"clerp":"Government buildings/institutions","activation":2.5,"influence":0.4994155764579773,"node_inf":0.6271374821662903,"node_rel":0.6482846140861511,"type":"transcoder","ctx_idx":10},{"id":"18_3623_10","idx":5,"layer":18,"clerp":"capital cities","activation":1.515625,"influence":0.43141090869903564,"node_inf":0.5764042735099792,"node_rel":0.6277174353599548,"type":"transcoder","ctx_idx":10},{"id":"18_45367_10","idx":6,"layer":18,"clerp":"US cities","activation":0.50390625,"influence":0.5699911713600159,"node_inf":0.6881327033042908,"node_rel":0.5960058569908142,"type":"transcoder","ctx_idx":10},{"id":"18_61980_10","idx":7,"layer":18,"clerp":"Texas related","activation":2.265625,"influence":0.5064738988876343,"node_inf":0.6503652334213257,"node_rel":0.6506885290145874,"type":"transcoder","ctx_idx":10},{"id":"19_54790_10","idx":8,"layer":19,"clerp":"Places","activation":3.9375,"influence":0.47289544343948364,"node_inf":0.6360085010528564,"node_rel":0.6441317796707153,"type":"transcoder","ctx_idx":10},{"id":"20_44686_9","idx":9,"layer":20,"clerp":"Texas locations/legal contexts","activation":3.203125,"influence":0.405597448348999,"node_inf":0.5682745575904846,"node_rel":0.5120062232017517,"type":"transcoder","ctx_idx":9},{"id":"20_44686_10","idx":10,"layer":20,"clerp":"Texas locations/legal contexts","activation":4.25,"influence":0.35407084226608276,"node_inf":0.5273332595825195,"node_rel":0.5191220045089722,"type":"transcoder","ctx_idx":10},{"id":"20_74108_10","idx":11,"layer":20,"clerp":"capital","activation":4.5625,"influence":0.4190360903739929,"node_inf":0.5873730778694153,"node_rel":0.5618082284927368,"type":"transcoder","ctx_idx":10},{"id":"21_61721_10","idx":12,"layer":21,"clerp":"code/documentation","activation":2.78125,"influence":0.46988311409950256,"node_inf":0.6148593425750732,"node_rel":0.5810048580169678,"type":"transcoder","ctx_idx":10},{"id":"21_84338_10","idx":13,"layer":21,"clerp":"Cities and locations","activation":3.71875,"influence":0.42747077345848083,"node_inf":0.5839060544967651,"node_rel":0.5022703409194946,"type":"transcoder","ctx_idx":10},{"id":"22_11998_10","idx":14,"layer":22,"clerp":"Texas and Dallas","activation":5.125,"influence":0.3718968629837036,"node_inf":0.5599021315574646,"node_rel":0.494268000125885,"type":"transcoder","ctx_idx":10},{"id":"22_32893_10","idx":15,"layer":22,"clerp":"Texas legal documents","activation":4.1875,"influence":0.4536067843437195,"node_inf":0.5907537937164307,"node_rel":0.522559642791748,"type":"transcoder","ctx_idx":10},{"id":"22_74186_10","idx":16,"layer":22,"clerp":"general news snippets","activation":0.4140625,"influence":0.555222749710083,"node_inf":0.6697282791137695,"node_rel":0.5463791489601135,"type":"transcoder","ctx_idx":10},{"id":"22_81571_10","idx":17,"layer":22,"clerp":"Texas locations and organizations","activation":1.1484375,"influence":0.5288102030754089,"node_inf":0.6626384854316711,"node_rel":0.5418845415115356,"type":"transcoder","ctx_idx":10},{"id":"E_6037_4","idx":18,"layer":0,"clerp":"Emb: \"  capital\"","activation":22.61808216571808,"influence":0.2261808216571808,"node_inf":0.4552099406719208,"node_rel":0.052556075155735016,"type":"embedding","ctx_idx":4},{"id":"E_2329_7","idx":19,"layer":0,"clerp":"Emb: \"  state\"","activation":30.94547390937805,"influence":0.3094547390937805,"node_inf":0.5198944807052612,"node_rel":0.15766821801662445,"type":"embedding","ctx_idx":7},{"id":"E_26865_9","idx":20,"layer":0,"clerp":"Emb: \"  Dallas\"","activation":11.287522315979004,"influence":0.11287522315979004,"node_inf":0.38820645213127136,"node_rel":0.10511215031147003,"type":"embedding","ctx_idx":9},{"id":"27_22605_10","idx":21,"layer":27,"clerp":"Output \" Austin\" (p=0.439)","activation":43.9453125,"influence":0.0,"node_inf":0.30819204449653625,"node_rel":0.27505144476890564,"type":"logit","ctx_idx":10}],"edges":[{"source":"1_89326_9","target":"E_26865_9","weight":9.6875,"flow":89.00390625,"abs_flow":89.00390625,"to_logit":false},{"source":"1_89326_9","target":"27_22605_10","weight":0.4841025769710541,"flow":4.447692394256592,"abs_flow":4.447692394256592,"to_logit":true},{"source":"7_24743_9","target":"1_89326_9","weight":-0.9765625,"flow":-3.4332275390625,"abs_flow":3.4332275390625,"to_logit":false},{"source":"7_24743_9","target":"E_26865_9","weight":5.125,"flow":18.017578125,"abs_flow":18.017578125,"to_logit":false},{"source":"7_24743_9","target":"27_22605_10","weight":0.4604751169681549,"flow":1.6188578605651855,"abs_flow":1.6188578605651855,"to_logit":true},{"source":"16_89970_9","target":"7_24743_9","weight":0.48046875,"flow":1.1561279296875,"abs_flow":1.1561279296875,"to_logit":false},{"source":"16_89970_9","target":"E_2329_7","weight":0.2490234375,"flow":0.599212646484375,"abs_flow":0.599212646484375,"to_logit":false},{"source":"16_89970_9","target":"E_26865_9","weight":3.390625,"flow":8.15869140625,"abs_flow":8.15869140625,"to_logit":false},{"source":"16_89970_9","target":"27_22605_10","weight":0.40106865763664246,"flow":0.965071439743042,"abs_flow":0.965071439743042,"to_logit":true},{"source":"17_1822_10","target":"E_6037_4","weight":0.88671875,"flow":1.828857421875,"abs_flow":1.828857421875,"to_logit":false},{"source":"17_1822_10","target":"27_22605_10","weight":0.4918775260448456,"flow":1.0144973993301392,"abs_flow":1.0144973993301392,"to_logit":true},{"source":"17_98126_10","target":"E_6037_4","weight":1.359375,"flow":3.3984375,"abs_flow":3.3984375,"to_logit":false},{"source":"17_98126_10","target":"E_2329_7","weight":0.56640625,"flow":1.416015625,"abs_flow":1.416015625,"to_logit":false},{"source":"17_98126_10","target":"27_22605_10","weight":0.4994155764579773,"flow":1.2485389709472656,"abs_flow":1.2485389709472656,"to_logit":true},{"source":"18_3623_10","target":"17_98126_10","weight":1.1875,"flow":1.7998046875,"abs_flow":1.7998046875,"to_logit":false},{"source":"18_3623_10","target":"E_6037_4","weight":0.474609375,"flow":0.719329833984375,"abs_flow":0.719329833984375,"to_logit":false},{"source":"18_3623_10","target":"27_22605_10","weight":0.43141090869903564,"flow":0.6538571715354919,"abs_flow":0.6538571715354919,"to_logit":true},{"source":"18_45367_10","target":"E_6037_4","weight":1.1015625,"flow":0.555084228515625,"abs_flow":0.555084228515625,"to_logit":false},{"source":"18_45367_10","target":"27_22605_10","weight":0.5699911713600159,"flow":0.28722211718559265,"abs_flow":0.28722211718559265,"to_logit":true},{"source":"18_61980_10","target":"E_26865_9","weight":2.234375,"flow":5.062255859375,"abs_flow":5.062255859375,"to_logit":false},{"source":"18_61980_10","target":"27_22605_10","weight":0.5064738988876343,"flow":1.1474798917770386,"abs_flow":1.1474798917770386,"to_logit":true},{"source":"19_54790_10","target":"E_6037_4","weight":0.8046875,"flow":3.16845703125,"abs_flow":3.16845703125,"to_logit":false},{"source":"19_54790_10","target":"27_22605_10","weight":0.47289544343948364,"flow":1.8620258569717407,"abs_flow":1.8620258569717407,"to_logit":true},{"source":"20_44686_9","target":"1_89326_9","weight":-0.5390625,"flow":-1.7266845703125,"abs_flow":1.7266845703125,"to_logit":false},{"source":"20_44686_9","target":"7_24743_9","weight":0.62890625,"flow":2.01446533203125,"abs_flow":2.01446533203125,"to_logit":false},{"source":"20_44686_9","target":"16_89970_9","weight":1.28125,"flow":4.10400390625,"abs_flow":4.10400390625,"to_logit":false},{"source":"20_44686_9","target":"E_26865_9","weight":5.53125,"flow":17.71728515625,"abs_flow":17.71728515625,"to_logit":false},{"source":"20_44686_9","target":"27_22605_10","weight":0.405597448348999,"flow":1.2991793155670166,"abs_flow":1.2991793155670166,"to_logit":true},{"source":"20_44686_10","target":"7_24743_9","weight":0.578125,"flow":2.45703125,"abs_flow":2.45703125,"to_logit":false},{"source":"20_44686_10","target":"16_89970_9","weight":0.609375,"flow":2.58984375,"abs_flow":2.58984375,"to_logit":false},{"source":"20_44686_10","target":"E_6037_4","weight":0.361328125,"flow":1.53564453125,"abs_flow":1.53564453125,"to_logit":false},{"source":"20_44686_10","target":"E_2329_7","weight":0.333984375,"flow":1.41943359375,"abs_flow":1.41943359375,"to_logit":false},{"source":"20_44686_10","target":"E_26865_9","weight":3.75,"flow":15.9375,"abs_flow":15.9375,"to_logit":false},{"source":"20_44686_10","target":"27_22605_10","weight":0.35407084226608276,"flow":1.5048010349273682,"abs_flow":1.5048010349273682,"to_logit":true},{"source":"20_74108_10","target":"17_98126_10","weight":0.8046875,"flow":3.67138671875,"abs_flow":3.67138671875,"to_logit":false},{"source":"20_74108_10","target":"E_6037_4","weight":1.0078125,"flow":4.59814453125,"abs_flow":4.59814453125,"to_logit":false},{"source":"20_74108_10","target":"E_2329_7","weight":0.5625,"flow":2.56640625,"abs_flow":2.56640625,"to_logit":false},{"source":"20_74108_10","target":"27_22605_10","weight":0.4190360903739929,"flow":1.9118521213531494,"abs_flow":1.9118521213531494,"to_logit":true},{"source":"21_61721_10","target":"20_44686_10","weight":0.98828125,"flow":2.7486572265625,"abs_flow":2.7486572265625,"to_logit":false},{"source":"21_61721_10","target":"E_6037_4","weight":0.6953125,"flow":1.933837890625,"abs_flow":1.933837890625,"to_logit":false},{"source":"21_61721_10","target":"E_26865_9","weight":0.57421875,"flow":1.5970458984375,"abs_flow":1.5970458984375,"to_logit":false},{"source":"21_61721_10","target":"27_22605_10","weight":0.46988311409950256,"flow":1.3068623542785645,"abs_flow":1.3068623542785645,"to_logit":true},{"source":"21_84338_10","target":"18_3623_10","weight":0.9765625,"flow":3.631591796875,"abs_flow":3.631591796875,"to_logit":false},{"source":"21_84338_10","target":"E_6037_4","weight":0.73046875,"flow":2.7164306640625,"abs_flow":2.7164306640625,"to_logit":false},{"source":"21_84338_10","target":"27_22605_10","weight":0.42747077345848083,"flow":1.589656949043274,"abs_flow":1.589656949043274,"to_logit":true},{"source":"22_11998_10","target":"16_89970_9","weight":0.447265625,"flow":2.292236328125,"abs_flow":2.292236328125,"to_logit":false},{"source":"22_11998_10","target":"20_44686_10","weight":1.4140625,"flow":7.2470703125,"abs_flow":7.2470703125,"to_logit":false},{"source":"22_11998_10","target":"E_6037_4","weight":0.43359375,"flow":2.22216796875,"abs_flow":2.22216796875,"to_logit":false},{"source":"22_11998_10","target":"E_26865_9","weight":3.5625,"flow":18.2578125,"abs_flow":18.2578125,"to_logit":false},{"source":"22_11998_10","target":"27_22605_10","weight":0.3718968629837036,"flow":1.9059714078903198,"abs_flow":1.9059714078903198,"to_logit":true},{"source":"22_32893_10","target":"20_44686_10","weight":1.046875,"flow":4.3837890625,"abs_flow":4.3837890625,"to_logit":false},{"source":"22_32893_10","target":"21_84338_10","weight":0.66015625,"flow":2.764404296875,"abs_flow":2.764404296875,"to_logit":false},{"source":"22_32893_10","target":"E_26865_9","weight":1.328125,"flow":5.5615234375,"abs_flow":5.5615234375,"to_logit":false},{"source":"22_32893_10","target":"27_22605_10","weight":0.4536067843437195,"flow":1.8994784355163574,"abs_flow":1.8994784355163574,"to_logit":true},{"source":"22_74186_10","target":"E_26865_9","weight":2.171875,"flow":0.8992919921875,"abs_flow":0.8992919921875,"to_logit":false},{"source":"22_74186_10","target":"27_22605_10","weight":0.555222749710083,"flow":0.2298969179391861,"abs_flow":0.2298969179391861,"to_logit":true},{"source":"22_81571_10","target":"20_44686_10","weight":1.3046875,"flow":1.49835205078125,"abs_flow":1.49835205078125,"to_logit":false},{"source":"22_81571_10","target":"E_26865_9","weight":1.1640625,"flow":1.33685302734375,"abs_flow":1.33685302734375,"to_logit":false},{"source":"22_81571_10","target":"27_22605_10","weight":0.5288102030754089,"flow":0.6073054671287537,"abs_flow":0.6073054671287537,"to_logit":true},{"source":"E_6037_4","target":"27_22605_10","weight":0.2261808216571808,"flow":5.115776538848877,"abs_flow":5.115776538848877,"to_logit":true},{"source":"E_2329_7","target":"27_22605_10","weight":0.3094547390937805,"flow":9.576223373413086,"abs_flow":9.576223373413086,"to_logit":true},{"source":"E_26865_9","target":"27_22605_10","weight":0.11287522315979004,"flow":1.2740815877914429,"abs_flow":1.2740815877914429,"to_logit":true},{"source":"27_22605_10","target":"7_24743_9","weight":0.6875,"flow":30.21240234375,"abs_flow":30.21240234375,"to_logit":false},{"source":"27_22605_10","target":"16_89970_9","weight":1.0859375,"flow":47.72186279296875,"abs_flow":47.72186279296875,"to_logit":false},{"source":"27_22605_10","target":"17_1822_10","weight":0.578125,"flow":25.4058837890625,"abs_flow":25.4058837890625,"to_logit":false},{"source":"27_22605_10","target":"17_98126_10","weight":0.578125,"flow":25.4058837890625,"abs_flow":25.4058837890625,"to_logit":false},{"source":"27_22605_10","target":"18_3623_10","weight":1.109375,"flow":48.7518310546875,"abs_flow":48.7518310546875,"to_logit":false},{"source":"27_22605_10","target":"18_45367_10","weight":0.359375,"flow":15.7928466796875,"abs_flow":15.7928466796875,"to_logit":false},{"source":"27_22605_10","target":"18_61980_10","weight":-0.5234375,"flow":-23.00262451171875,"abs_flow":23.00262451171875,"to_logit":false},{"source":"27_22605_10","target":"19_54790_10","weight":0.5625,"flow":24.71923828125,"abs_flow":24.71923828125,"to_logit":false},{"source":"27_22605_10","target":"20_44686_9","weight":1.1875,"flow":52.18505859375,"abs_flow":52.18505859375,"to_logit":false},{"source":"27_22605_10","target":"20_44686_10","weight":2.046875,"flow":89.9505615234375,"abs_flow":89.9505615234375,"to_logit":false},{"source":"27_22605_10","target":"20_74108_10","weight":0.96875,"flow":42.572021484375,"abs_flow":42.572021484375,"to_logit":false},{"source":"27_22605_10","target":"21_61721_10","weight":0.8203125,"flow":36.04888916015625,"abs_flow":36.04888916015625,"to_logit":false},{"source":"27_22605_10","target":"21_84338_10","weight":1.0,"flow":43.9453125,"abs_flow":43.9453125,"to_logit":false},{"source":"27_22605_10","target":"22_11998_10","weight":-1.3125,"flow":-57.67822265625,"abs_flow":57.67822265625,"to_logit":false},{"source":"27_22605_10","target":"22_32893_10","weight":1.0,"flow":43.9453125,"abs_flow":43.9453125,"to_logit":false},{"source":"27_22605_10","target":"22_74186_10","weight":-0.408203125,"flow":-17.938613891601562,"abs_flow":17.938613891601562,"to_logit":false},{"source":"27_22605_10","target":"22_81571_10","weight":-0.4609375,"flow":-20.25604248046875,"abs_flow":20.25604248046875,"to_logit":false},{"source":"27_22605_10","target":"E_6037_4","weight":-0.470703125,"flow":-20.685195922851562,"abs_flow":20.685195922851562,"to_logit":false},{"source":"27_22605_10","target":"E_2329_7","weight":0.431640625,"flow":18.968582153320312,"abs_flow":18.968582153320312,"to_logit":false},{"source":"27_22605_10","target":"E_26865_9","weight":4.65625,"flow":204.620361328125,"abs_flow":204.620361328125,"to_logit":false}]};
+const SUPERNODE_MAP = {"SN_00_L1":["1_89326_9"],"SN_01_L7":["7_24743_9"],"SN_02_L16":["16_89970_9"],"SN_03_L17_21":["17_1822_10","17_98126_10","18_45367_10","19_54790_10","21_61721_10","21_84338_10"],"SN_04_L18_22":["18_61980_10","22_11998_10","22_74186_10","22_81571_10"],"SN_05_L18_20":["18_3623_10","20_74108_10"],"SN_06_L20_22":["20_44686_9","20_44686_10","22_32893_10"],"SN_EMB":["E_6037_4","E_2329_7","E_26865_9"],"SN_LOGIT":["27_22605_10"]};
 
-// ── Supernode color palette (distinct, readable on dark bg) ──────────────────
+// ── Supernode color palette ──────────────────────────────────────────────────
 const SN_PALETTE = [
   '#3d8eff','#f5a623','#10b981','#f43f5e','#8b5cf6',
   '#06b6d4','#ec4899','#84cc16','#f97316','#14b8a6',
   '#a78bfa','#fb7185',
 ];
 
-// Build lookup: node_id → supernode name
 const node2sn = {};
 const snNames = Object.keys(SUPERNODE_MAP);
 snNames.forEach(sn => {
   SUPERNODE_MAP[sn].forEach(nid => { node2sn[nid] = sn; });
 });
 
-// Assign color per supernode (EMB/LOGIT get special colors)
 const snColor = {};
 let ci = 0;
 snNames.forEach(sn => {
@@ -392,36 +428,206 @@ snNames.forEach(sn => {
 });
 
 // ── State ────────────────────────────────────────────────────────────────────
-let supernodeActive   = false;
+let supernodeActive = false;
+let repositioned    = false;
 let currentFlowThresh = 10;
 let currentNodeSize   = 8;
 let currentOpacity    = 0.30;
 let highlightedSN     = null;
+let animating         = false;
 
-// ── Toggle ───────────────────────────────────────────────────────────────────
+// ── Position caches ──────────────────────────────────────────────────────────
+let posLayer = {};   // original layer-based positions
+let posCluster = {}; // cluster-grouped positions
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const svg    = d3.select('#svg');
+const width  = () => document.getElementById('canvas').clientWidth;
+const height = () => document.getElementById('canvas').clientHeight;
+
+const allLayers  = [...new Set(GRAPH_DATA.nodes.map(d => d.layer))].sort((a,b)=>a-b);
+const layerNodes = {};
+GRAPH_DATA.nodes.forEach(d => {
+  if (!layerNodes[d.layer]) layerNodes[d.layer] = [];
+  layerNodes[d.layer].push(d);
+});
+const nodeLayerMap = {};
+GRAPH_DATA.nodes.forEach(d => { nodeLayerMap[d.id] = d.layer; });
+const maxFlow = d3.max(GRAPH_DATA.edges.map(e => e.abs_flow)) || 1;
+
+const tooltip = document.getElementById('tooltip');
+
+// ── Compute original layer-based positions ───────────────────────────────────
+function computeLayerPositions() {
+  const W = width(), H = height();
+  const layerX = d3.scalePoint().domain(allLayers).range([80, W-80]).padding(0.3);
+  const pos = {};
+  GRAPH_DATA.nodes.forEach(d => {
+    const group = layerNodes[d.layer];
+    const idx   = group.indexOf(d);
+    const n     = group.length;
+    const margin = 50;
+    const step   = (H - 2*margin) / Math.max(n, 1);
+    pos[d.id] = {
+      x: layerX(d.layer),
+      y: n === 1 ? H/2 : margin + idx*step + step/2
+    };
+  });
+  return pos;
+}
+
+// ── Compute cluster-grouped positions ────────────────────────────────────────
+// Each supernode gets a horizontal band based on its average layer.
+// Within the band, nodes are arranged in a compact grid.
+// Supernodes are spaced apart vertically.
+function computeClusterPositions() {
+  const W = width(), H = height();
+  const pos = {};
+
+  // Sort supernodes by their average layer (left to right flow)
+  const snInfo = snNames.map(sn => {
+    const members = SUPERNODE_MAP[sn];
+    const layers  = members.map(nid => {
+      const nd = GRAPH_DATA.nodes.find(n => n.id === nid);
+      return nd ? nd.layer : 0;
+    });
+    const avgLayer = layers.reduce((a,b)=>a+b,0) / layers.length;
+    const minLayer = Math.min(...layers);
+    const maxLayer = Math.max(...layers);
+    return { sn, members, avgLayer, minLayer, maxLayer };
+  });
+
+  snInfo.sort((a,b) => a.avgLayer - b.avgLayer);
+
+  // Assign horizontal center per supernode based on avg layer
+  const xScale = d3.scaleLinear()
+    .domain([d3.min(snInfo, d=>d.avgLayer), d3.max(snInfo, d=>d.avgLayer)])
+    .range([140, W - 140]);
+
+  // Assign vertical slots — split canvas into rows for supernodes
+  const nSN = snInfo.length;
+  const rowH = H / (nSN + 1);
+
+  snInfo.forEach((info, si) => {
+    const cx = xScale(info.avgLayer);
+    const cy = rowH * (si + 1);
+    const n  = info.members.length;
+
+    // Arrange members in a grid within the cluster region
+    const cols = Math.ceil(Math.sqrt(n * 1.8)); // wider than tall
+    const rows = Math.ceil(n / cols);
+    const spacingX = 52;
+    const spacingY = 42;
+    const startX = cx - (cols - 1) * spacingX / 2;
+    const startY = cy - (rows - 1) * spacingY / 2;
+
+    // Sort members by layer then by id for consistent ordering
+    const sorted = [...info.members].sort((a,b) => {
+      const la = nodeLayerMap[a] || 0;
+      const lb = nodeLayerMap[b] || 0;
+      if (la !== lb) return la - lb;
+      return a.localeCompare(b);
+    });
+
+    sorted.forEach((nid, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      pos[nid] = {
+        x: startX + col * spacingX,
+        y: startY + row * spacingY
+      };
+    });
+  });
+
+  return pos;
+}
+
+// ── Toggle supernodes ────────────────────────────────────────────────────────
 function toggleSupernode() {
   supernodeActive = !supernodeActive;
-  const btn   = document.getElementById('sn-toggle');
-  const label = document.getElementById('sn-toggle-label');
-  const leg   = document.getElementById('legend');
-  const snLeg = document.getElementById('sn-legend');
+  const btn    = document.getElementById('sn-toggle');
+  const label  = document.getElementById('sn-toggle-label');
+  const leg    = document.getElementById('legend');
+  const snLeg  = document.getElementById('sn-legend');
+  const repoBtn = document.getElementById('repo-toggle');
 
   if (supernodeActive) {
     btn.classList.add('active');
     label.textContent = 'HIDE SUPERNODES';
     leg.style.display  = 'none';
     snLeg.classList.add('visible');
+    repoBtn.disabled = false;
   } else {
     btn.classList.remove('active');
     label.textContent = 'SHOW SUPERNODES';
     leg.style.display  = 'block';
     snLeg.classList.remove('visible');
+    repoBtn.disabled = true;
     highlightedSN = null;
+    // If repositioned, snap back
+    if (repositioned) {
+      repositioned = false;
+      repoBtn.classList.remove('active');
+      document.getElementById('repo-toggle-label').textContent = 'REPOSITION BY CLUSTER';
+    }
   }
   render();
 }
 
-// ── Build supernode legend items ──────────────────────────────────────────────
+// ── Toggle reposition ────────────────────────────────────────────────────────
+function toggleReposition() {
+  if (!supernodeActive || animating) return;
+  repositioned = !repositioned;
+  const btn   = document.getElementById('repo-toggle');
+  const label = document.getElementById('repo-toggle-label');
+
+  if (repositioned) {
+    btn.classList.add('active');
+    label.textContent = 'RESTORE LAYERS';
+  } else {
+    btn.classList.remove('active');
+    label.textContent = 'REPOSITION BY CLUSTER';
+  }
+  animateTransition();
+}
+
+// ── Animated transition between layouts ──────────────────────────────────────
+function animateTransition() {
+  animating = true;
+  posLayer   = computeLayerPositions();
+  posCluster = computeClusterPositions();
+
+  const fromPos = repositioned ? posLayer : posCluster;
+  const toPos   = repositioned ? posCluster : posLayer;
+  const duration = 800;
+
+  // Animate nodes
+  d3.selectAll('.node')
+    .transition()
+    .duration(duration)
+    .ease(d3.easeCubicInOut)
+    .attr('transform', d => {
+      const p = toPos[d.id] || fromPos[d.id] || {x:0,y:0};
+      d.x = p.x; d.y = p.y;
+      return `translate(${p.x},${p.y})`;
+    });
+
+  // After transition, do a full re-render to update edges and hulls
+  setTimeout(() => {
+    animating = false;
+    render();
+  }, duration + 50);
+}
+
+// ── Get current positions ────────────────────────────────────────────────────
+function getCurrentPositions() {
+  if (repositioned && supernodeActive) {
+    return computeClusterPositions();
+  }
+  return computeLayerPositions();
+}
+
+// ── Build supernode legend ───────────────────────────────────────────────────
 function buildSNLegend() {
   const container = document.getElementById('sn-legend-items');
   container.innerHTML = '';
@@ -436,45 +642,14 @@ function buildSNLegend() {
       <span class="sn-count">${members.length}n</span>`;
     div.addEventListener('click', () => {
       highlightedSN = (highlightedSN === sn) ? null : sn;
-      renderSNHighlight();
+      render();
     });
     container.appendChild(div);
   });
 }
-
 buildSNLegend();
 
-// ── D3 setup ─────────────────────────────────────────────────────────────────
-const svg    = d3.select('#svg');
-const width  = () => document.getElementById('canvas').clientWidth;
-const height = () => document.getElementById('canvas').clientHeight;
-
-const allLayers  = [...new Set(GRAPH_DATA.nodes.map(d => d.layer))].sort((a,b)=>a-b);
-const layerNodes = {};
-GRAPH_DATA.nodes.forEach(d => {
-  if (!layerNodes[d.layer]) layerNodes[d.layer] = [];
-  layerNodes[d.layer].push(d);
-});
-const nodeLayerMap = {};
-GRAPH_DATA.nodes.forEach(d => { nodeLayerMap[d.id] = d.layer; });
-
-const maxFlow = d3.max(GRAPH_DATA.edges.map(e => e.abs_flow)) || 1;
-
-function computePositions() {
-  const W = width(), H = height();
-  const layerX = d3.scalePoint().domain(allLayers).range([80, W-80]).padding(0.3);
-  GRAPH_DATA.nodes.forEach(d => {
-    const group = layerNodes[d.layer];
-    const idx   = group.indexOf(d);
-    const n     = group.length;
-    const margin = 50;
-    const step   = (H - 2*margin) / Math.max(n, 1);
-    d.x = layerX(d.layer);
-    d.y = n === 1 ? H/2 : margin + idx*step + step/2;
-  });
-}
-
-// ── Color helpers ─────────────────────────────────────────────────────────────
+// ── Color helpers ────────────────────────────────────────────────────────────
 const colorNodeDefault = d => {
   if (d.type === 'embedding') return '#f59e0b';
   if (d.type === 'logit')     return '#f43f5e';
@@ -486,7 +661,7 @@ const colorNodeSN = d => {
   return sn ? snColor[sn] : '#334155';
 };
 
-// ── Convex hull per supernode ─────────────────────────────────────────────────
+// ── Convex hull per supernode ────────────────────────────────────────────────
 function computeHulls(pos) {
   const hulls = {};
   snNames.forEach(sn => {
@@ -495,23 +670,20 @@ function computeHulls(pos) {
       .map(nid => [pos[nid].x, pos[nid].y]);
     if (pts.length < 1) return;
     if (pts.length === 1) {
-      // Single point — draw a small circle approximation
       const r = currentNodeSize * 2.5;
       const [cx, cy] = pts[0];
       hulls[sn] = `M${cx-r},${cy} A${r},${r} 0 1,0 ${cx+r},${cy} A${r},${r} 0 1,0 ${cx-r},${cy}`;
       return;
     }
     if (pts.length === 2) {
-      // Two points — pad to a capsule
       const r = currentNodeSize * 2.2;
       pts.push([pts[0][0]+0.1, pts[0][1]+r]);
     }
     try {
       const hull = d3.polygonHull(pts);
       if (!hull) return;
-      // Inflate hull outward
       const centroid = d3.polygonCentroid(hull);
-      const pad = currentNodeSize * 2.8;
+      const pad = repositioned ? currentNodeSize * 3.5 : currentNodeSize * 2.8;
       const padded = hull.map(([x, y]) => {
         const dx = x - centroid[0], dy = y - centroid[1];
         const dist = Math.sqrt(dx*dx + dy*dy) || 1;
@@ -523,16 +695,27 @@ function computeHulls(pos) {
   return hulls;
 }
 
-// ── Main render ───────────────────────────────────────────────────────────────
+// ── Clerp label formatting ───────────────────────────────────────────────────
+function clerpLabel(d) {
+  if (d.type === 'embedding') return d.clerp.replace(/Emb:\s*"?\s*/, '').replace('"','').trim();
+  if (d.type === 'logit') return 'Austin';
+  const c = d.clerp;
+  // In repositioned mode, show more text
+  const maxLen = repositioned ? 18 : 14;
+  return c.length > maxLen ? c.slice(0, maxLen-1) + '…' : c;
+}
+
+// ── Main render ──────────────────────────────────────────────────────────────
 function render() {
+  if (animating) return;
   svg.selectAll('*').remove();
   const W = width(), H = height();
   svg.attr('viewBox', `0 0 ${W} ${H}`);
-  computePositions();
 
-  const layerX = d3.scalePoint().domain(allLayers).range([80, W-80]).padding(0.3);
-  const pos    = {};
-  GRAPH_DATA.nodes.forEach(d => { pos[d.id] = {x: d.x, y: d.y}; });
+  const pos = getCurrentPositions();
+  GRAPH_DATA.nodes.forEach(d => {
+    if (pos[d.id]) { d.x = pos[d.id].x; d.y = pos[d.id].y; }
+  });
 
   // ── Defs (arrowheads) ──
   const defs = svg.append('defs');
@@ -547,23 +730,38 @@ function render() {
       .attr('fill',color).attr('opacity',0.8);
   });
 
-  // ── Layer guide lines ──
-  allLayers.forEach(l => {
-    const x = layerX(l);
-    svg.append('line').attr('class','layer-line')
-      .attr('x1',x).attr('y1',22).attr('x2',x).attr('y2',H-8)
-      .attr('stroke','#1a2540').attr('stroke-width',1);
-    svg.append('text').attr('x',x).attr('y',14)
-      .attr('text-anchor','middle').attr('fill','#253550')
-      .attr('font-size',9).attr('font-family','JetBrains Mono')
-      .text(l===0?'EMB':l===27?'LOGIT':`L${l}`);
+  // Also add per-supernode arrow defs for colored edges
+  snNames.forEach(sn => {
+    const c = snColor[sn];
+    defs.append('marker')
+      .attr('id',`arrow-sn-${sn}`).attr('viewBox','0 -4 8 8')
+      .attr('refX',8).attr('refY',0)
+      .attr('markerWidth',5).attr('markerHeight',5)
+      .attr('orient','auto')
+      .append('path').attr('d','M0,-4L8,0L0,4')
+      .attr('fill',c).attr('opacity',0.8);
   });
 
-  // ── Supernode hulls (drawn before edges and nodes) ──
+  // ── Layer guide lines (only in layer mode) ──
+  if (!repositioned) {
+    const layerX = d3.scalePoint().domain(allLayers).range([80, W-80]).padding(0.3);
+    allLayers.forEach(l => {
+      const x = layerX(l);
+      svg.append('line').attr('class','layer-line')
+        .attr('x1',x).attr('y1',22).attr('x2',x).attr('y2',H-8)
+        .attr('stroke','#1a2540').attr('stroke-width',1);
+      svg.append('text').attr('x',x).attr('y',14)
+        .attr('text-anchor','middle').attr('fill','#253550')
+        .attr('font-size',9).attr('font-family','JetBrains Mono')
+        .text(l===0?'EMB':l===27?'LOGIT':`L${l}`);
+    });
+  }
+
+  // ── Supernode hulls ──
   if (supernodeActive) {
-    const hulls   = computeHulls(pos);
-    const hullG   = svg.append('g').attr('id','hulls');
-    const labelG  = svg.append('g').attr('id','hull-labels');
+    const hulls  = computeHulls(pos);
+    const hullG  = svg.append('g').attr('id','hulls');
+    const labelG = svg.append('g').attr('id','hull-labels');
 
     snNames.forEach(sn => {
       if (!hulls[sn]) return;
@@ -575,22 +773,23 @@ function render() {
         .attr('d', hulls[sn])
         .attr('fill', color)
         .attr('stroke', color)
-        .attr('fill-opacity', dim ? 0.01 : 0.07)
-        .attr('stroke-opacity', dim ? 0.08 : 0.38);
+        .attr('fill-opacity', dim ? 0.01 : (repositioned ? 0.09 : 0.07))
+        .attr('stroke-opacity', dim ? 0.08 : (repositioned ? 0.55 : 0.38));
 
-      // Label at centroid of members
       const members = SUPERNODE_MAP[sn].filter(nid => pos[nid]);
       if (members.length === 0) return;
       const cx = members.reduce((s,n)=>s+pos[n].x,0)/members.length;
-      const cy = members.reduce((s,n)=>s+pos[n].y,0)/members.length - currentNodeSize*3.5;
+      const minY = Math.min(...members.map(n=>pos[n].y));
+      const cy = minY - (repositioned ? currentNodeSize*4.5 : currentNodeSize*3.5);
 
       labelG.append('text')
         .attr('class','sn-label visible')
         .attr('x', cx).attr('y', cy)
         .attr('text-anchor','middle')
         .attr('fill', color)
-        .attr('opacity', dim ? 0.1 : 0.5)
-        .text(sn.replace('SN_',''));
+        .attr('opacity', dim ? 0.1 : (repositioned ? 0.7 : 0.5))
+        .attr('font-size', repositioned ? '11px' : '8px')
+        .text(sn);
     });
   }
 
@@ -616,32 +815,45 @@ function render() {
       ? Math.max(0.12, (e.abs_flow / maxFlow) * currentOpacity * 3)
       : currentOpacity * (isNeg ? 0.4 : 1.0);
 
-    // In supernode mode, color edges by source supernode
     let color, arrowId;
     if (supernodeActive && !isToLogit) {
       const sn = node2sn[e.source];
       color   = sn ? snColor[sn] : '#3d8eff';
-      arrowId = isBwd ? 'bwd' : 'fwd';
+      arrowId = sn ? `sn-${sn}` : 'fwd';
+    } else if (supernodeActive && isToLogit) {
+      // Color logit edges by source supernode too
+      const sn = node2sn[e.source];
+      color   = sn ? snColor[sn] : '#f5a623';
+      arrowId = sn ? `sn-${sn}` : 'logit';
     } else {
       color   = isToLogit ? '#f5a623' : isNeg ? '#8b5cf6' : isBwd ? '#f87171' : '#3d8eff';
       arrowId = isToLogit ? 'logit'   : isNeg ? 'neg'     : isBwd ? 'bwd'     : 'fwd';
+    }
+
+    // Dim edges not involving highlighted SN
+    let finalOpacity = opacity;
+    if (highlightedSN) {
+      const srcSN = node2sn[e.source];
+      const tgtSN = node2sn[e.target];
+      const involved = srcSN === highlightedSN || tgtSN === highlightedSN;
+      finalOpacity = involved ? Math.min(opacity * 2, 0.9) : opacity * 0.08;
     }
 
     const dx   = tgt.x - src.x;
     const dy   = tgt.y - src.y;
     const dist = Math.sqrt(dx*dx + dy*dy) + 1;
     const curv = isToLogit ? 0 : (isBwd ? -35 : 25);
-    const cx   = (src.x+tgt.x)/2 - dy*curv/dist;
+    const cx2  = (src.x+tgt.x)/2 - dy*curv/dist;
     const cy2  = (src.y+tgt.y)/2 + dx*curv/dist;
 
     const g = isToLogit ? logitEdgeG : edgeG;
     g.append('path')
       .attr('class','link')
       .datum(e)
-      .attr('d',`M${src.x},${src.y} Q${cx},${cy2} ${tgt.x},${tgt.y}`)
+      .attr('d',`M${src.x},${src.y} Q${cx2},${cy2} ${tgt.x},${tgt.y}`)
       .attr('stroke', color)
       .attr('stroke-width', strokeW)
-      .attr('opacity', opacity)
+      .attr('opacity', finalOpacity)
       .attr('marker-end',`url(#arrow-${arrowId})`);
   });
 
@@ -653,8 +865,9 @@ function render() {
     .attr('transform', d => `translate(${d.x},${d.y})`)
     .style('cursor','pointer')
     .on('click',      (ev,d) => showNodeInfo(d))
-    .on('mouseenter', (ev,d) => highlightNode(d, true))
-    .on('mouseleave', (ev,d) => highlightNode(d, false));
+    .on('mouseenter', (ev,d) => { highlightNode(d, true); showTooltip(ev, d); })
+    .on('mousemove',  (ev,d) => moveTooltip(ev))
+    .on('mouseleave', (ev,d) => { highlightNode(d, false); hideTooltip(); });
 
   nodeEls.append('circle')
     .attr('r', d => {
@@ -673,89 +886,93 @@ function render() {
       return 'none';
     })
     .attr('stroke-width', d => d.type==='logit' ? 2 : (supernodeActive ? 0.8 : 0))
-    .attr('opacity', d => d.type==='transcoder' ? 0.82 : 1.0);
+    .attr('opacity', d => {
+      if (highlightedSN) {
+        const snMembers = new Set(SUPERNODE_MAP[highlightedSN] || []);
+        return snMembers.has(d.id) ? 1.0 : 0.15;
+      }
+      return d.type==='transcoder' ? 0.82 : 1.0;
+    });
 
+  // Node labels — show clerp
   nodeEls.append('text')
     .attr('dy', d => {
-      const r = currentNodeSize*(d.type==='logit' ? 1.65 : 0.5+0.9*d.node_inf);
-      return -(r+3);
+      const r = currentNodeSize*(d.type==='logit' ? 1.65 : d.type==='embedding' ? 1.15 : 0.5+0.9*d.node_inf);
+      return -(r+4);
     })
     .attr('text-anchor','middle')
-    .attr('fill','#6a7f9a').attr('font-size',7)
-    .text(d => {
-      if (d.type==='embedding') return d.clerp.replace(/Emb:\s*"?\s*/,'').replace('"','').trim();
-      if (d.type==='logit')     return 'Austin';
-      const c = d.clerp;
-      return c.length>12 ? c.slice(0,11)+'…' : c;
-    });
+    .attr('fill', d => {
+      if (supernodeActive) {
+        const sn = node2sn[d.id];
+        return sn ? snColor[sn] : '#6a7f9a';
+      }
+      return '#6a7f9a';
+    })
+    .attr('font-size', repositioned ? 8 : 7)
+    .attr('opacity', d => {
+      if (highlightedSN) {
+        const snMembers = new Set(SUPERNODE_MAP[highlightedSN] || []);
+        return snMembers.has(d.id) ? 0.9 : 0.1;
+      }
+      return 0.8;
+    })
+    .text(d => clerpLabel(d));
+
+  // In repositioned mode, also show layer badge below node
+  if (repositioned) {
+    nodeEls.append('text')
+      .attr('dy', d => {
+        const r = currentNodeSize*(d.type==='logit' ? 1.65 : d.type==='embedding' ? 1.15 : 0.5+0.9*d.node_inf);
+        return r + 12;
+      })
+      .attr('text-anchor','middle')
+      .attr('fill', '#3a4a60')
+      .attr('font-size', 7)
+      .attr('opacity', 0.6)
+      .text(d => d.layer === 0 ? 'EMB' : d.layer === 27 ? 'L27' : `L${d.layer}`);
+  }
 }
 
-// ── Highlight on hover ────────────────────────────────────────────────────────
+// ── Tooltip ──────────────────────────────────────────────────────────────────
+function showTooltip(ev, d) {
+  const sn = node2sn[d.id];
+  const snText = sn ? ` [${sn}]` : '';
+  tooltip.textContent = `${d.clerp}${snText}  —  L${d.layer}`;
+  tooltip.classList.add('show');
+  moveTooltip(ev);
+}
+
+function moveTooltip(ev) {
+  const canvasRect = document.getElementById('canvas').getBoundingClientRect();
+  tooltip.style.left = (ev.clientX - canvasRect.left + 12) + 'px';
+  tooltip.style.top  = (ev.clientY - canvasRect.top - 28) + 'px';
+}
+
+function hideTooltip() {
+  tooltip.classList.remove('show');
+}
+
+// ── Highlight on hover ───────────────────────────────────────────────────────
 function highlightNode(d, on) {
   d3.selectAll('.link').attr('opacity', function(e) {
     if (!e) return on ? 0.02 : currentOpacity;
     const isLogit   = e.to_logit === true;
     const baseLogit = Math.max(0.12, (e.abs_flow/maxFlow)*currentOpacity*3);
-    if (!on) return isLogit ? baseLogit : currentOpacity;
+    if (!on) {
+      if (highlightedSN) {
+        const srcSN = node2sn[e.source];
+        const tgtSN = node2sn[e.target];
+        const involved = srcSN === highlightedSN || tgtSN === highlightedSN;
+        return involved ? (isLogit ? baseLogit*2 : currentOpacity*1.5) : currentOpacity*0.08;
+      }
+      return isLogit ? baseLogit : currentOpacity;
+    }
     const connected = e.source===d.id || e.target===d.id;
     return connected ? 0.92 : (isLogit ? 0.06 : 0.02);
   });
 }
 
-// ── Supernode highlight from legend click ─────────────────────────────────────
-function renderSNHighlight() {
-  if (!supernodeActive) return;
-  // Just re-render hulls with dim state
-  svg.select('#hulls').remove();
-  svg.select('#hull-labels').remove();
-
-  const pos = {};
-  GRAPH_DATA.nodes.forEach(d => { pos[d.id] = {x: d.x, y: d.y}; });
-  const hulls  = computeHulls(pos);
-  const hullG  = svg.insert('g','#edges-regular').attr('id','hulls');
-  const labelG = svg.insert('g','#edges-regular').attr('id','hull-labels');
-
-  snNames.forEach(sn => {
-    if (!hulls[sn]) return;
-    const color = snColor[sn];
-    const dim   = highlightedSN && highlightedSN !== sn;
-
-    hullG.append('path')
-      .attr('class','sn-hull')
-      .attr('d', hulls[sn])
-      .attr('fill', color)
-      .attr('stroke', color)
-      .attr('fill-opacity', dim ? 0.01 : 0.1)
-      .attr('stroke-opacity', dim ? 0.05 : 0.5);
-
-    const members = SUPERNODE_MAP[sn].filter(nid => pos[nid]);
-    if (members.length === 0) return;
-    const cx = members.reduce((s,n)=>s+pos[n].x,0)/members.length;
-    const cy = members.reduce((s,n)=>s+pos[n].y,0)/members.length - currentNodeSize*3.5;
-
-    labelG.append('text')
-      .attr('class','sn-label visible')
-      .attr('x', cx).attr('y', cy)
-      .attr('text-anchor','middle')
-      .attr('fill', color)
-      .attr('opacity', dim ? 0.08 : 0.6)
-      .text(sn.replace('SN_',''));
-  });
-
-  // Also dim node circles not in highlighted SN
-  if (highlightedSN) {
-    const snMembers = new Set(SUPERNODE_MAP[highlightedSN] || []);
-    d3.selectAll('.node circle').attr('opacity', d =>
-      snMembers.has(d.id) ? 1.0 : 0.15
-    );
-  } else {
-    d3.selectAll('.node circle').attr('opacity', d =>
-      d.type==='transcoder' ? 0.82 : 1.0
-    );
-  }
-}
-
-// ── Node info panel ───────────────────────────────────────────────────────────
+// ── Node info panel ──────────────────────────────────────────────────────────
 function showNodeInfo(d) {
   const panel    = document.getElementById('node-info');
   const maxAct   = Math.max(...GRAPH_DATA.nodes.map(n => n.activation));
@@ -800,7 +1017,7 @@ function showNodeInfo(d) {
     <div style="margin-top:8px;font-size:9px;color:var(--dim)">${outEdges.length} out &middot; ${inEdges.length} in</div>`;
 }
 
-// ── Slider controls ───────────────────────────────────────────────────────────
+// ── Slider controls ──────────────────────────────────────────────────────────
 document.getElementById('flow-thresh').addEventListener('input', function() {
   currentFlowThresh = +this.value;
   document.getElementById('flow-val').textContent = this.value;

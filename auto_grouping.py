@@ -153,10 +153,18 @@ def score_k(final_supernodes: dict,
                     size_score=0, n_middle=0, details={})
 
     intra_sims = [st['intra_sim_mean'] for st in middle_sn.values()]
-    # Weight by cluster size so big sloppy clusters are penalised more
     sizes = [st['n'] for st in middle_sn.values()]
     total_n = sum(sizes)
-    intra_sim = sum(s * n / total_n for s, n in zip(intra_sims, sizes))
+    intra_sim_raw = sum(s * n / total_n for s, n in zip(intra_sims, sizes))
+
+    # Normalise against the global mean similarity so scores are comparable
+    # across graphs with very different similarity distributions
+    middle_idx = [i for i, nid in enumerate(data['kept_ids']) if not _is_fixed(nid)]
+    S_mid = S[middle_idx][:, middle_idx].numpy()
+    upper = S_mid[np.triu_indices(len(middle_idx), k=1)]
+    global_mean = float(upper.mean()) + 1e-8
+    # Ratio > 1 means clusters are more similar than random pairs
+    intra_sim = min(1.0, intra_sim_raw / (global_mean * 2))
 
     # ── 2. DAG safety
     n_pairs = n_middle * (n_middle - 1) / 2
@@ -186,8 +194,18 @@ def score_k(final_supernodes: dict,
         flow_balance = 0.0
 
     # ── 4. Size score: prefer k near sqrt(N_middle_nodes)
+
+    # Better — penalise DAG over-splitting too
+        # ── 4. Size score: prefer k near sqrt(N_middle_nodes)
     ideal_k = max(2, int(np.sqrt(target_n_middle)))
     deviation = abs(n_middle - ideal_k) / max(target_n_middle, 1)
+    size_score = max(0.0, 1.0 - deviation)
+
+    # ── 4b. Cohesion penalty: punish clusters with very low intra_sim_min
+    weak_clusters = sum(1 for st in middle_sn.values()
+                        if st['intra_sim_min'] < 0.3)
+    cohesion_penalty = weak_clusters / max(n_middle, 1)
+    intra_sim = intra_sim * (1.0 - 0.5 * cohesion_penalty)
     size_score = max(0.0, 1.0 - deviation)
 
     # ── Composite
@@ -279,19 +297,29 @@ def find_best_k(data: dict,
     for k in range(k_min, k_max + 1):
         try:
             final_sn = cluster_with_target_k(
-                data, S, target_k=k, max_layer_span=max_layer_span)
-            sc = score_k(final_sn, data, S,
-                         target_n_middle=N_middle, **w)
-            sc['final_supernodes'] = final_sn
-            results[k] = sc
-
-            print(f'  {k:>3}  {sc["n_middle"]:>4}  {sc["intra_sim"]:>6.3f}  '
-                  f'{sc["dag_safety"]:>5.3f}  {sc["flow_balance"]:>5.3f}  '
-                  f'{sc["size_score"]:>5.3f}  {sc["total"]:>6.3f}  '
-                  f'{sc["n_warnings"]:>5}')
+                data, S, target_k=k, max_layer_span=max_layer_span
+            )
         except Exception as e:
-            print(f'  {k:>3}  FAILED: {e}')
+            print(f'  k={k} failed: {e}')
             continue
+
+        w = weights or {}
+        sc = score_k(
+            final_sn, data, S,
+            target_n_middle=N_middle,
+            w_intra=w.get('w_intra', 0.30),
+            w_dag=w.get('w_dag', 0.25),
+            w_flow=w.get('w_flow', 0.25),
+            w_size=w.get('w_size', 0.20),
+        )
+
+        sc['final_supernodes'] = final_sn  # store for --run-best
+        results[k] = sc  # ← THIS is what was missing
+
+        print(f'  {k:>3}  {sc["n_middle"]:>4}  {sc["intra_sim"]:>6.4f}  '
+              f'{sc["dag_safety"]:>5.4f}  {sc["flow_balance"]:>5.4f}  '
+              f'{sc["size_score"]:>5.4f}  {sc["total"]:>6.4f}  '
+              f'{sc.get("n_warnings", 0):>5}  ')
 
     if not results:
         print('  All k values failed. Falling back to eigengap suggestion.')
