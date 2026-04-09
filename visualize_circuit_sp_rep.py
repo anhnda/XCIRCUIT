@@ -53,7 +53,7 @@ def load_snapshot(path):
 
 def prepare_graph_data(raw):
     kept_ids  = raw['kept_ids']
-    adj       = raw['pruned_adj'].clone().float()   # real edges only, untouched
+    adj       = raw['pruned_adj'].clone().float().T   # real edges only, untouched
     attr      = raw['attr']
     node_inf  = raw['node_inf'].float()
     node_rel  = raw['node_rel'].float()

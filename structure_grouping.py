@@ -96,10 +96,9 @@ def prepare_graph_data(raw: dict) -> dict:
         node_inf     : torch.Tensor (N,)   normalised node influence scores
     """
     kept_ids  = raw['kept_ids']
-    adj       = raw['pruned_adj'].clone().float()   # real edges only, untouched
+    adj       = raw['pruned_adj'].clone().float().T   # ← .T added: receiver-indexed → sender-indexed
     attr      = raw['attr']
     logit_idx = len(kept_ids) - 1
-
     # ── REMOVED: influence injection into adj logit column ───────────────────
     # Previously: adj[i, logit_idx] = inf  ← mixed attribution into structure
     # Now: stored separately as inf_to_logit, rendered as node property
