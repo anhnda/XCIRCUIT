@@ -500,120 +500,88 @@ def compute_flow_to_logit(data: dict, max_hops: int = 6) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # 7b. SUPERNODE FLOW  (NEW)
 # ─────────────────────────────────────────────────────────────────────────────
-
 def compute_supernode_flow(final_supernodes: dict,
                            data: dict,
                            max_hops: int = 6) -> dict:
-    """
-    Build and analyse the surrogate graph at the supernode level.
-
-    Unlike the original node-level flow which is just re-partitioned
-    (giving a trivially perfect preservation ratio), this function:
-
-      1. Constructs a real SN×SN adjacency matrix by summing all
-         node-level edges that cross supernode boundaries.
-
-      2. Assigns each supernode a representative activation = mean
-         activation of its members (normalised).
-
-      3. Runs the same multi-hop flow propagation on the SN graph
-         and computes how much flow reaches SN_LOGIT.
-
-      4. Compares this surrogate SN-level reach to the original
-         node-level reach → a MEANINGFUL preservation ratio that
-         can actually fail.
-
-      5. Returns the full SN→SN flow matrix for visualisation,
-         per-SN flow-to-logit, and per-hop breakdown.
-
-    Args:
-        final_supernodes : dict  sn_name → list[node_id]
-        data             : prepared graph data (adj, act_values, kept_ids …)
-        max_hops         : propagation depth (default 6, same as node-level)
-
-    Returns dict with keys:
-        sn_names        : list[str]        ordered supernode names
-        sn_adj          : np.ndarray (K,K) raw SN→SN edge weight matrix
-        sn_act          : np.ndarray (K,)  mean activation per SN (raw)
-        sn_act_norm     : np.ndarray (K,)  normalised activation per SN
-        F_sn            : np.ndarray (K,K) flow matrix  F[i,j]=act_norm[i]*sn_adj[i,j]
-        sn_reach        : np.ndarray (K,)  total multi-hop reach to SN_LOGIT
-        sn_reach_by_hop : list[np.ndarray] per-hop reach vectors
-        logit_sn_idx    : int              index of SN_LOGIT in sn_names
-        surr_reach_total: float            total SN-level reach to logit
-        orig_reach_total: float            original node-level reach to logit
-        preservation    : float            surr / orig  (meaningful ratio)
-        sn_flow_matrix  : dict[str, dict[str, float]]  named SN→SN matrix
-        bottleneck_sns  : list[str]        supernodes with high in-flow but
-                                           low onward-flow (potential bottlenecks)
-        dominant_paths  : list[dict]       top-5 SN→SN edges by flow weight
-    """
     kept_ids   = data['kept_ids']
-    adj        = data['adj']           # (N, N)  node-level adjacency
+    adj        = data['adj']
     act_values = data['act_values']
     logit_idx  = data['logit_idx']
+    layers     = data['layers']
 
     id2idx   = {nid: i for i, nid in enumerate(kept_ids)}
     sn_names = list(final_supernodes.keys())
     K        = len(sn_names)
     sn2idx   = {sn: i for i, sn in enumerate(sn_names)}
 
-    # Locate SN_LOGIT
     if 'SN_LOGIT' not in sn2idx:
         raise ValueError('SN_LOGIT not found in final_supernodes.')
     logit_sn_idx = sn2idx['SN_LOGIT']
 
-    # ── Step 1: Build SN×SN adjacency by summing node-level edges ────────────
-    #
-    # sn_adj[i, j] = Σ_{u ∈ SN_i, v ∈ SN_j} adj[u, v]
-    #
-    # This is a real structural quantity: total edge weight flowing
-    # from all members of SN_i to all members of SN_j.
-    # Self-edges (i==j) are zeroed out (intra-supernode flow is internal).
-
+    # ── Step 1: Build SN×SN adjacency (forward-only node-level edges) ────────
     sn_adj = np.zeros((K, K), dtype=np.float64)
 
     for sn_src, members_src in final_supernodes.items():
         i = sn2idx[sn_src]
         src_node_idxs = [id2idx[n] for n in members_src if n in id2idx]
+        if not src_node_idxs:
+            continue
         for sn_tgt, members_tgt in final_supernodes.items():
             j = sn2idx[sn_tgt]
             if i == j:
                 continue
             tgt_node_idxs = [id2idx[n] for n in members_tgt if n in id2idx]
-            if not src_node_idxs or not tgt_node_idxs:
+            if not tgt_node_idxs:
                 continue
-            # Sum over all (src_node, tgt_node) pairs
             src_t = torch.tensor(src_node_idxs, dtype=torch.long)
             tgt_t = torch.tensor(tgt_node_idxs, dtype=torch.long)
-            block = adj[src_t][:, tgt_t]   # (|src|, |tgt|)
-            sn_adj[i, j] = block.sum().item()
+            block = adj[src_t][:, tgt_t]
+            src_layers_t = torch.tensor([layers[s] for s in src_node_idxs])
+            tgt_layers_t = torch.tensor([layers[t] for t in tgt_node_idxs])
+            fwd_mask = (src_layers_t.unsqueeze(1) < tgt_layers_t.unsqueeze(0)).float()
+            sn_adj[i, j] = (block * fwd_mask).sum().item()
 
-    # ── Step 2: Supernode representative activation ───────────────────────────
-    #
-    # Mean activation of member nodes, normalised globally.
-    # Using mean (not sum) so large supernodes don't dominate unfairly.
+    # ── Step 1b: Remove SN-level back-edges ───────────────────────────────────
+    # Even after node-level forward masking, two SNs with overlapping layer
+    # ranges (e.g. SN_06_L20_22 and SN_07_L20_21) can have edges in both
+    # directions because L21→L22 passes the node mask both ways.
+    # Enforce strict SN-level DAG: zero out sn_adj[i,j] if
+    # max_layer(SN_i) >= min_layer(SN_j) — except always keep edges to LOGIT.
+    sn_layer_lo = {}
+    sn_layer_hi = {}
+    for sn, members in final_supernodes.items():
+        lvals = [layers[id2idx[n]] for n in members if n in id2idx]
+        if lvals:
+            sn_layer_lo[sn] = min(lvals)
+            sn_layer_hi[sn] = max(lvals)
 
+    for sn_src in sn_names:
+        i = sn2idx[sn_src]
+        hi_src = sn_layer_hi.get(sn_src, 0)
+        for sn_tgt in sn_names:
+            if sn_tgt == 'SN_LOGIT':
+                continue
+            j = sn2idx[sn_tgt]
+            lo_tgt = sn_layer_lo.get(sn_tgt, 0)
+            if hi_src >= lo_tgt:
+                sn_adj[i, j] = 0.0
+
+    # ── Step 2: Supernode activation ──────────────────────────────────────────
     sn_act = np.zeros(K, dtype=np.float64)
     for sn, members in final_supernodes.items():
         i = sn2idx[sn]
         acts = [act_values.get(n, 0.0) for n in members]
         sn_act[i] = float(np.mean(acts)) if acts else 0.0
 
-    max_act = sn_act.max()
+    max_act     = sn_act.max()
     sn_act_norm = sn_act / (max_act + 1e-8)
 
-    # ── Step 3: SN-level flow matrix F_sn ────────────────────────────────────
-    #
-    # F_sn[i, j] = sn_act_norm[i] * sn_adj[i, j]
-    # Mirrors the node-level  F[i,j] = act_norm[i] * adj[i,j]
+    # ── Step 3: F_sn — activation scaling applied once at source ─────────────
+    F_sn = sn_act_norm[:, np.newaxis] * sn_adj
 
-    F_sn = sn_act_norm[:, np.newaxis] * sn_adj   # (K, K)
-
-    # ── Step 4: Multi-hop propagation on SN graph ─────────────────────────────
-    #
-    # reach_sn = Σ_{hop=1..max_hops} (F_sn^hop)[:, logit_sn_idx]
-    # Directly comparable to the node-level reach computation.
+    # ── Step 4: Multi-hop propagation ─────────────────────────────────────────
+    # EMB is a pure source — zero it out after hop 1 so it doesn't re-fire
+    emb_idx_sn = sn2idx.get('SN_EMB', -1)
 
     sn_reach        = np.zeros(K, dtype=np.float64)
     sn_reach_by_hop = []
@@ -624,34 +592,28 @@ def compute_supernode_flow(final_supernodes: dict,
         sn_reach += hop_reach
         sn_reach_by_hop.append(hop_reach)
         if hop < max_hops - 1:
-            current_sn = current_sn @ F_sn
+            current_sn = current_sn @ sn_adj
+            if emb_idx_sn >= 0:
+                current_sn[emb_idx_sn, :] = 0.0
 
     surr_reach_total = float(sn_reach.sum())
 
-    # ── Step 5: Compare to original node-level reach ──────────────────────────
-    #
-    # The node-level computation produces a scalar = total flow reaching
-    # the logit node across all hops. We recompute it here to get a
-    # self-contained comparison (avoids dependency on call order).
-
-    act_t    = torch.tensor(
-        [act_values[n] for n in kept_ids], dtype=torch.float32
-    )
+    # ── Step 5: Original node-level reach (same propagation logic) ────────────
+    # ── Step 5: Original node-level reach ─────────────────────────────────────
+    act_t = torch.tensor([act_values[n] for n in kept_ids], dtype=torch.float32)
     act_norm_t = act_t / (act_t.max() + 1e-8)
-    F_node     = act_norm_t.unsqueeze(1) * adj
+    F_node = act_norm_t.unsqueeze(1) * adj
     node_reach = torch.zeros(len(kept_ids))
-    cur_node   = F_node.clone()
+    cur_node = F_node.clone()
+
     for hop in range(max_hops):
         node_reach += cur_node[:, logit_idx]
         if hop < max_hops - 1:
-            cur_node = cur_node @ F_node
+            cur_node = cur_node @ adj  # no EMB zeroing — EMB rows decay naturally
     orig_reach_total = float(node_reach.sum().item())
+    preservation     = surr_reach_total / (orig_reach_total + 1e-8)
 
-    # Preservation ratio: how well does the SN graph reproduce the
-    # total flow seen in the original graph?
-    preservation = surr_reach_total / (orig_reach_total + 1e-8)
-
-    # ── Step 6: Named SN→SN flow matrix ──────────────────────────────────────
+    # ── Step 6: Named flow matrix ─────────────────────────────────────────────
     sn_flow_matrix: dict[str, dict[str, float]] = {}
     for sn_src in sn_names:
         i = sn2idx[sn_src]
@@ -661,26 +623,18 @@ def compute_supernode_flow(final_supernodes: dict,
             sn_flow_matrix[sn_src][sn_tgt] = float(F_sn[i, j])
 
     # ── Step 7: Bottleneck detection ──────────────────────────────────────────
-    #
-    # A bottleneck supernode has high in-flow from predecessors but
-    # relatively low onward-flow to successors (flow is "absorbed").
-    # Defined as: in_flow > median(in_flows) AND
-    #             out_flow < median(out_flows)
-
-    in_flows  = F_sn.sum(axis=0)   # total flow INTO each SN
-    out_flows = F_sn.sum(axis=1)   # total flow OUT of each SN
-
-    med_in  = float(np.median(in_flows[in_flows > 0]))  if (in_flows  > 0).any() else 0.0
-    med_out = float(np.median(out_flows[out_flows > 0])) if (out_flows > 0).any() else 0.0
+    in_flows  = F_sn.sum(axis=0)
+    out_flows = F_sn.sum(axis=1)
+    med_in    = float(np.median(in_flows[in_flows > 0]))   if (in_flows  > 0).any() else 0.0
+    med_out   = float(np.median(out_flows[out_flows > 0])) if (out_flows > 0).any() else 0.0
 
     bottleneck_sns = [
-        sn_names[i]
-        for i in range(K)
+        sn_names[i] for i in range(K)
         if (in_flows[i] > med_in and out_flows[i] < med_out
             and sn_names[i] not in ('SN_LOGIT', 'SN_EMB'))
     ]
 
-    # ── Step 8: Dominant SN→SN edges ─────────────────────────────────────────
+    # ── Step 8: Dominant edges ────────────────────────────────────────────────
     edges = []
     for i, sn_src in enumerate(sn_names):
         for j, sn_tgt in enumerate(sn_names):
@@ -708,8 +662,6 @@ def compute_supernode_flow(final_supernodes: dict,
         bottleneck_sns   = bottleneck_sns,
         dominant_paths   = dominant_paths,
     )
-
-
 def print_supernode_flow_report(snf: dict) -> None:
     """
     Print a structured report of the supernode-level flow analysis.
@@ -805,6 +757,7 @@ def print_supernode_flow_report(snf: dict) -> None:
     print('  SN→SN ADJACENCY MATRIX  (raw edge weights, non-zero only)')
     print(SEP)
     sn_adj = snf['sn_adj']
+
     K      = len(sn_names)
     rows_printed = 0
     for i in range(K):

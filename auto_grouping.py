@@ -1,5 +1,5 @@
 """
-auto_k.py
+auto_grouping.py
 ─────────────────────────────────────────────────────────────────────────────
 Automatic selection of the optimal target-k for structure_grouping.py.
 
@@ -10,7 +10,310 @@ Combines two strategies:
 Usage (standalone):
   python auto_k.py --file subgraph/austin_plt.pt --max-layer-span 10
   python auto_k.py --file subgraph/austin_clt.pt --max-layer-span 10
+(eeg) anhnd@Ducs-MacBook-Pro-2 XCIRCUIT % >....
 
+
+python visualize_circuit_sp_rep.py \
+    --file subgraph/austin_clt.pt \
+    --supernode supernode_map.json \
+    --sn-flow supernode_map_sn_flow.json \
+    --out circuit_sp_rep.html
+
+open circuit_sp_rep.html
+
+Loading subgraph/austin_clt.pt...
+  Nodes: 22
+Computing similarity matrix...
+  S shape: torch.Size([22, 22])
+
+── Step 1: Eigengap analysis ──
+  Eigengap suggests k = 2
+  Eigenvalue gaps (first 10): 0.1056, 0.5465, 0.2428, 0.0271, 0.0112, 0.0111, 0.0142, 0.0129, 0.0061, 0.0119
+  Initial search range: [2, 4]
+  Final search range: [3, 5]
+
+── Step 2: Scoring k = 3..5 ──
+    k  n_sn   intra    dag  flow/attr   size   TOTAL  warns
+  ──────────────────────────────────────────────────
+  Similarity stats (middle nodes, upper triangle):
+    mean=0.3728  median=0.3783  p75=0.6607  max=1.0000
+  Spectral clusters (before DAG enforcement): 3
+    3     9  1.0000  1.0000  0.6643  0.7222  0.8605      0
+  Similarity stats (middle nodes, upper triangle):
+    mean=0.3728  median=0.3783  p75=0.6607  max=1.0000
+  Spectral clusters (before DAG enforcement): 4
+    4    11  1.0000  1.0000  0.6641  0.6111  0.8383      0
+  Similarity stats (middle nodes, upper triangle):
+    mean=0.3728  median=0.3783  p75=0.6607  max=1.0000
+  Spectral clusters (before DAG enforcement): 5
+    5    11  1.0000  1.0000  0.6631  0.6111  0.8380      0
+
+── Result ──
+  Best k = 3  (total score = 0.8605)
+    intra_sim    = 1.0000  (within-cluster coherence)
+    dag_safety   = 1.0000  (cycle-free fraction)
+    flow_balance = 0.6643  (entropy of flow distribution)
+    size_score   = 0.7222  (proximity to sqrt(N)=4)
+    n_middle supernodes after DAG enforcement = 9
+    DAG cycle warnings = 0
+
+Sweep results saved → auto_k_results.json
+
+Auto-k plot saved → auto_k_plot.png
+
+── Running structure_grouping with k=3 ──
+Supernode map saved → supernode_map.json
+
+════════════════════════════════════════════════════════════════════════
+  STRUCTURE GROUPING REPORT
+════════════════════════════════════════════════════════════════════════
+
+  Total supernodes  : 11
+  Fixed (kept)      : SN_EMB, SN_LOGIT
+  Clustered         : 9
+
+────────────────────────────────────────────────────────────────────────
+  SUPERNODE SUMMARY
+────────────────────────────────────────────────────────────────────────
+  Name                     n      layers   act_sum   inf_sum   intra_sim
+  --------------------------------------------------------------------
+  SN_00_L1                 1          L1      9.19    0.4841      1.0000
+  SN_01_L7                 1          L7      3.52    0.4605      1.0000
+  SN_02_L16                1         L16      2.41    0.4011      1.0000
+  SN_03_L17                2         L17      4.56    0.9913      0.7236
+  SN_04_L18                1         L18      2.27    0.5065      1.0000
+  SN_05_L18_19             3      L18–19      5.96    1.4743      0.7738
+  SN_06_L20_22             3      L20–22     11.64    1.2133      0.8225
+  SN_07_L20_21             3      L20–21     11.06    1.3164      0.7173
+  SN_08_L22                3         L22      6.69    1.4559      0.9062
+  SN_EMB                   3          L0     64.85    0.6485      0.1118
+  SN_LOGIT                 1         L27     43.95    0.0000      1.0000
+
+────────────────────────────────────────────────────────────────────────
+  MEMBER DETAILS
+────────────────────────────────────────────────────────────────────────
+
+  ┌── SN_00_L1  (n=1, layers L1–1, intra_sim_min=1.000)
+  │   1_89326_9             L1    Dallas
+  └────────────────────────────────────────────────────────────
+
+  ┌── SN_01_L7  (n=1, layers L7–7, intra_sim_min=1.000)
+  │   7_24743_9             L7    Texas legal matters
+  └────────────────────────────────────────────────────────────
+
+  ┌── SN_02_L16  (n=1, layers L16–16, intra_sim_min=1.000)
+  │   16_89970_9            L16   Texas
+  └────────────────────────────────────────────────────────────
+
+  ┌── SN_03_L17  (n=2, layers L17–17, intra_sim_min=0.724)
+  │   17_1822_10            L17   place names
+  │   17_98126_10           L17   Government buildings/institutions
+  └────────────────────────────────────────────────────────────
+
+  ┌── SN_04_L18  (n=1, layers L18–18, intra_sim_min=1.000)
+  │   18_61980_10           L18   Texas related
+  └────────────────────────────────────────────────────────────
+
+  ┌── SN_05_L18_19  (n=3, layers L18–19, intra_sim_min=0.661)
+  │   18_3623_10            L18   capital cities
+  │   18_45367_10           L18   US cities
+  │   19_54790_10           L19   Places
+  └────────────────────────────────────────────────────────────
+
+  ┌── SN_06_L20_22  (n=3, layers L20–22, intra_sim_min=0.740)
+  │   20_44686_9            L20   Texas locations/legal contexts
+  │   20_44686_10           L20   Texas locations/legal contexts
+  │   22_32893_10           L22   Texas legal documents
+  └────────────────────────────────────────────────────────────
+
+  ┌── SN_07_L20_21  (n=3, layers L20–21, intra_sim_min=0.690)
+  │   20_74108_10           L20   capital
+  │   21_61721_10           L21   code/documentation
+  │   21_84338_10           L21   Cities and locations
+  └────────────────────────────────────────────────────────────
+
+  ┌── SN_08_L22  (n=3, layers L22–22, intra_sim_min=0.827)
+  │   22_11998_10           L22   Texas and Dallas
+  │   22_74186_10           L22   general news snippets
+  │   22_81571_10           L22   Texas locations and organizations
+  └────────────────────────────────────────────────────────────
+
+  ┌── SN_EMB  (n=3, layers L0–0, intra_sim_min=0.000)
+  │   E_6037_4              L0    Emb: "  capital"
+  │   E_2329_7              L0    Emb: "  state"
+  │   E_26865_9             L0    Emb: "  Dallas"
+  └────────────────────────────────────────────────────────────
+
+  ┌── SN_LOGIT  (n=1, layers L27–27, intra_sim_min=1.000)
+  │   27_22605_10           L27   Output " Austin" (p=0.439)
+  └────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────
+  FLOW PRESERVATION  (legacy: node-level reach partitioned per SN)
+────────────────────────────────────────────────────────────────────────
+  NOTE: ratio is trivially 1.0 — see SUPERNODE FLOW REPORT for
+        a meaningful surrogate comparison.
+  Original  reach → logit : 2.5234  (normalised)
+  Surrogate reach → logit : 2.5234
+  Preservation ratio      : 1.0000
+  [PASS] Within 20% tolerance.
+
+  Structural reach → logit (by supernode):
+    SN_00_L1                -0.0242  ( -1.0%)
+    SN_01_L7                 0.0708  (  2.8%)  █
+    SN_02_L16                0.0681  (  2.7%)  █
+    SN_03_L17                0.0674  (  2.7%)  █
+    SN_04_L18               -0.0270  ( -1.1%)
+    SN_05_L18_19             0.0958  (  3.8%)  █
+    SN_06_L20_22             0.3720  ( 14.7%)  ███████
+    SN_07_L20_21             0.2424  (  9.6%)  ████
+    SN_08_L22               -0.1690  ( -6.7%)
+    SN_EMB                   1.8271  ( 72.4%)  ████████████████████████████████████
+
+────────────────────────────────────────────────────────────────────────
+  ATTRIBUTION SUMMARY  (causal influence scores, precomputed)
+────────────────────────────────────────────────────────────────────────
+  (Captures total causal effect per supernode on logit,
+   independent of path — NOT an edge, a node property.)
+
+    SN_00_L1                 0.4841  (  5.4%)  ██
+    SN_01_L7                 0.4605  (  5.1%)  ██
+    SN_02_L16                0.4011  (  4.5%)  ██
+    SN_03_L17                0.9913  ( 11.1%)  █████
+    SN_04_L18                0.5065  (  5.7%)  ██
+    SN_05_L18_19             1.4743  ( 16.5%)  ████████
+    SN_06_L20_22             1.2133  ( 13.6%)  ██████
+    SN_07_L20_21             1.3164  ( 14.7%)  ███████
+    SN_08_L22                1.4559  ( 16.3%)  ████████
+    SN_EMB                   0.6485  (  7.2%)  ███
+
+────────────────────────────────────────────────────────────────────────
+  DAG SAFETY CHECK
+────────────────────────────────────────────────────────────────────────
+  [PASS] No interleaving layer ranges detected.
+
+════════════════════════════════════════════════════════════════════════
+
+DEBUG SN_EMB outgoing (row sum): 0.0000
+DEBUG SN_EMB incoming (col sum): 0.0000
+DEBUG SN_EMB outgoing (row sum): 0.0000
+DEBUG SN_EMB incoming (col sum): 0.0000
+DEBUG SN_EMB outgoing (row sum): 0.0000
+DEBUG SN_EMB incoming (col sum): 0.0000
+DEBUG SN_EMB outgoing (row sum): 0.0000
+DEBUG SN_EMB incoming (col sum): 0.0000
+DEBUG SN_EMB outgoing (row sum): 0.0000
+DEBUG SN_EMB incoming (col sum): 0.0000
+DEBUG SN_EMB outgoing (row sum): 0.0000
+DEBUG SN_EMB incoming (col sum): 0.0000
+DEBUG SN_EMB outgoing (row sum): 0.0000
+DEBUG SN_EMB incoming (col sum): 0.0000
+DEBUG SN_EMB outgoing (row sum): 0.0000
+DEBUG SN_EMB incoming (col sum): 0.0000
+DEBUG SN_EMB outgoing (row sum): 0.0000
+DEBUG SN_EMB incoming (col sum): 0.0000
+DEBUG SN_EMB outgoing (row sum): 52.7041
+DEBUG SN_EMB incoming (col sum): 0.0000
+  EMB → SN_00_L1: 9.6875
+  EMB → SN_01_L7: 5.1250
+  EMB → SN_02_L16: 3.6396
+  EMB → SN_03_L17: 2.8125
+  EMB → SN_04_L18: 2.2344
+  EMB → SN_05_L18_19: 2.3809
+  EMB → SN_06_L20_22: 11.3047
+  EMB → SN_07_L20_21: 3.5703
+  EMB → SN_08_L22: 7.3320
+  EMB → SN_LOGIT: 4.6172
+DEBUG SN_EMB outgoing (row sum): 52.7041
+DEBUG SN_EMB incoming (col sum): 0.0000
+  EMB → SN_00_L1: 9.6875
+  EMB → SN_01_L7: 5.1250
+  EMB → SN_02_L16: 3.6396
+  EMB → SN_03_L17: 2.8125
+  EMB → SN_04_L18: 2.2344
+  EMB → SN_05_L18_19: 2.3809
+  EMB → SN_06_L20_22: 11.3047
+  EMB → SN_07_L20_21: 3.5703
+  EMB → SN_08_L22: 7.3320
+  EMB → SN_LOGIT: 4.6172
+
+════════════════════════════════════════════════════════════════════════
+  SUPERNODE FLOW REPORT  (surrogate graph, SN-level propagation)
+════════════════════════════════════════════════════════════════════════
+
+────────────────────────────────────────────────────────────────────────
+  FLOW PRESERVATION  (SN surrogate vs. original node graph)
+────────────────────────────────────────────────────────────────────────
+  Original node-level reach → logit : 9.2636
+  Surrogate SN-level reach  → logit : 2.9060
+  Preservation ratio                : 0.3137
+  [FAIL] Ratio 0.314 — SN graph is a poor surrogate.
+
+────────────────────────────────────────────────────────────────────────
+  PER-SUPERNODE REACH → SN_LOGIT  (multi-hop, SN graph)
+────────────────────────────────────────────────────────────────────────
+  Supernode               act_norm       reach   share%  flow
+  SN_00_L1                  0.2091     -1.6918   -58.2%
+  SN_01_L7                  0.0800      0.5295    18.2%  █████████
+  SN_02_L16                 0.0548      0.3738    12.9%  ██████
+  SN_03_L17                 0.0519      0.6698    23.0%  ███████████
+  SN_04_L18                 0.0516     -0.0270    -0.9%
+  SN_05_L18_19              0.0452      0.2658     9.1%  ████
+  SN_06_L20_22              0.0883      0.1944     6.7%  ███
+  SN_07_L20_21              0.0839      0.4308    14.8%  ███████
+  SN_08_L22                 0.0507     -0.1107    -3.8%
+  SN_EMB                    0.4919      2.2712    78.2%  ███████████████████████████████████████
+
+────────────────────────────────────────────────────────────────────────
+  DOMINANT SN→SN FLOW EDGES  (top 5 by F_sn weight)
+────────────────────────────────────────────────────────────────────────
+  Source                  Target                   F_sn weight
+  SN_EMB                  SN_06_L20_22                5.560860
+  SN_EMB                  SN_00_L1                    4.765353
+  SN_EMB                  SN_08_L22                   3.606681
+  SN_EMB                  SN_01_L7                    2.521026
+  SN_EMB                  SN_LOGIT                    2.271229
+
+────────────────────────────────────────────────────────────────────────
+  HOP-BY-HOP FLOW TO SN_LOGIT
+────────────────────────────────────────────────────────────────────────
+  Hop 1: total=3.0078  (top contributors: SN_EMB=2.2712, SN_06_L20_22=0.3739, SN_07_L20_21=0.2340)
+  Hop 2: total=0.5370  (top contributors: SN_01_L7=0.4506, SN_02_L16=0.3849, SN_03_L17=0.2417)
+
+────────────────────────────────────────────────────────────────────────
+  BOTTLENECK SUPERNODES  (high in-flow, low out-flow)
+────────────────────────────────────────────────────────────────────────
+  SN_00_L1                in=4.7654  out=-0.3169  ratio=-0.066
+  SN_08_L22               in=3.8712  out=-0.1107  ratio=-0.029
+
+────────────────────────────────────────────────────────────────────────
+  SN→SN ADJACENCY MATRIX  (raw edge weights, non-zero only)
+────────────────────────────────────────────────────────────────────────
+  SN_01_L7               → SN_02_L16:0.480, SN_06_L20_22:1.207, SN_LOGIT:0.688
+  SN_02_L16              → SN_06_L20_22:1.891, SN_08_L22:0.447, SN_LOGIT:1.086
+  SN_03_L17              → SN_05_L18_19:1.188, SN_07_L20_21:0.805, SN_LOGIT:1.156
+  SN_05_L18_19           → SN_07_L20_21:0.977, SN_LOGIT:2.031
+  SN_06_L20_22           → SN_07_L20_21:0.988, SN_08_L22:2.719, SN_LOGIT:4.234
+  SN_07_L20_21           → SN_06_L20_22:0.660, SN_LOGIT:2.789
+  SN_EMB                 → SN_00_L1:9.688, SN_01_L7:5.125, SN_02_L16:3.640, SN_03_L17:2.812, SN_04_L18:2.234, SN_05_L18_19:2.381, SN_06_L20_22:11.305, SN_07_L20_21:3.570, SN_08_L22:7.332, SN_LOGIT:4.617
+
+════════════════════════════════════════════════════════════════════════
+
+Supernode flow saved → supernode_map_sn_flow.json
+
+  ➜  Use:  python auto_grouping.py --file subgraph/austin_clt.pt --target-k 3 --max-layer-span 4
+Loading subgraph/austin_clt.pt...
+  Total edges:    61
+  Edges to logit (real circuit only): 20
+  Nodes: 22
+  Edges: 61
+Loading supernode map: supernode_map.json...
+  Supernodes: 11
+Loading SN flow data: supernode_map_sn_flow.json...
+  SN flow loaded: preservation=0.3137
+Saved → circuit_sp_rep.html
+Open:  open circuit_sp_rep.html
+(eeg) anhnd@Ducs-MacBook-Pro-2 XCIRCUIT %
 Usage (as library):
   from auto_k import find_best_k
   best_k, results = find_best_k(data, S, max_layer_span=10)
