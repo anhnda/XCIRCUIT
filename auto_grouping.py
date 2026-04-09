@@ -42,6 +42,8 @@ from structure_grouping import (
     parse_layer,
     _is_fixed,
 )
+# Note: score_k calls build_supernode_graph which handles edge_conservation
+# with the corrected <= mask. No local edge computation needed here.
 
 
 # ─────────────────────────────────────────────────────────────────────────────

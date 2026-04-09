@@ -413,6 +413,14 @@ def build_supernode_graph(final_supernodes: dict, data: dict) -> dict:
 
     # ── Edges: sum of forward adj weights between member sets ─────────────────
     # Build as K×K numpy array (matching sn_names order) for JSON serialisation
+    #
+    # Forward mask for CROSS-SN edges uses <= (not <):
+    #   layer[src] <= layer[tgt]  is the correct criterion here because a
+    #   same-layer edge from SN_A to SN_B is a valid attribution path between
+    #   two *different* functional concepts — it is NOT a back-edge.
+    #   Using strict < was dropping these and causing edge_conservation < 1.
+    #
+    # Within-SN same-layer edges are already excluded by the i == j guard.
     sn_adj_mat = np.zeros((K, K), dtype=np.float64)
 
     for i, sn_a in enumerate(sn_names):
@@ -427,13 +435,13 @@ def build_supernode_graph(final_supernodes: dict, data: dict) -> dict:
             idx_b = [id2idx[n] for n in members_b if n in id2idx]
             if not idx_b:
                 continue
-            # Vectorised forward-only block sum
             src_t = torch.tensor(idx_a, dtype=torch.long)
             tgt_t = torch.tensor(idx_b, dtype=torch.long)
             block = adj[src_t][:, tgt_t]                          # |A|×|B|
             src_layers = torch.tensor([layers[s] for s in idx_a])
             tgt_layers = torch.tensor([layers[t] for t in idx_b])
-            fwd_mask   = (src_layers.unsqueeze(1) < tgt_layers.unsqueeze(0)).float()
+            # <= : same-layer cross-SN edges are valid forward connections
+            fwd_mask   = (src_layers.unsqueeze(1) <= tgt_layers.unsqueeze(0)).float()
             sn_adj_mat[i, j] = (block * fwd_mask).sum().item()
 
     # ── Validation ────────────────────────────────────────────────────────────
@@ -441,14 +449,21 @@ def build_supernode_graph(final_supernodes: dict, data: dict) -> dict:
     total_inf_sn   = sum(sn_inf.values())
     inf_conservation = total_inf_sn / (total_inf_orig + 1e-12)
 
-    # forward edges only
+    # Cross-SN forward edges: layer[i] <= layer[j], different supernodes.
+    # Must match the mask used in sn_adj_mat above exactly.
+    node2sn = {nid: sn
+               for sn, members in final_supernodes.items()
+               for nid in members}
     total_fwd_orig = sum(
         adj[i, j].item()
         for i in range(len(kept_ids))
         for j in range(len(kept_ids))
-        if layers[i] < layers[j] and adj[i, j].item() != 0.0
+        if i != j
+        and layers[i] <= layers[j]
+        and adj[i, j].item() != 0.0
+        and node2sn.get(kept_ids[i]) != node2sn.get(kept_ids[j])
     )
-    total_fwd_sn   = float(sn_adj_mat.sum())
+    total_fwd_sn      = float(sn_adj_mat.sum())
     edge_conservation = total_fwd_sn / (total_fwd_orig + 1e-12)
 
     # ── Derived: dominant edges ───────────────────────────────────────────────
@@ -461,13 +476,21 @@ def build_supernode_graph(final_supernodes: dict, data: dict) -> dict:
     dominant_paths = edges[:5]
 
     # ── Derived: bottleneck SNs ───────────────────────────────────────────────
-    # High total in-flow AND meaningful attribution share
-    in_flows  = sn_adj_mat.sum(axis=0)
-    med_in    = float(np.median(in_flows[in_flows > 0])) if (in_flows > 0).any() else 0.0
+    # sn_adj_mat[i, j]: i sends to j.  Column j = all flows INTO j.
+    # Split by sign: excitatory (positive) vs suppressive (negative) in-flow.
+    # Bottleneck = high excitatory in-flow + meaningful attribution share.
+    excit_in = np.array([
+        sum(v for v in sn_adj_mat[:, j] if v > 0)
+        for j in range(K)
+    ])
     total_inf = sum(sn_inf.values()) or 1.0
+
+    pos_in       = excit_in[excit_in > 0]
+    med_excit_in = float(np.median(pos_in)) if len(pos_in) > 0 else 0.0
+
     bottleneck_sns = [
         sn_names[i] for i in range(K)
-        if (in_flows[i] > med_in
+        if (excit_in[i] > med_excit_in
             and sn_inf.get(sn_names[i], 0) / total_inf > 0.05
             and sn_names[i] not in ('SN_LOGIT', 'SN_EMB'))
     ]
@@ -590,16 +613,23 @@ def print_report(final_supernodes: dict,
 
     # ── Bottlenecks ───────────────────────────────────────────────────────────
     print(f'\n{SEP}')
-    print('  BOTTLENECK SUPERNODES  (high in-flow, attribution share > 5%)')
+    print('  BOTTLENECK SUPERNODES  (high excitatory in-flow, attribution share > 5%)')
     print(SEP)
     if sng['bottleneck_sns']:
         for sn in sng['bottleneck_sns']:
-            i      = sn_names.index(sn)
-            in_f   = float(sn_adj[i, :].sum())
-            out_f  = float(sn_adj[:, i].sum())
-            inf_sn = float(sng['sn_inf'][i])
-            print(f'  {sn:<22}  in={in_f:.4f}  out={out_f:.4f}  '
-                  f'inf={inf_sn:.4f}  ratio={out_f/(in_f+1e-8):.3f}')
+            i           = sn_names.index(sn)
+            # sn_adj[i, j]: row i = sender → j; col j = receiver ← i
+            outgoing    = sn_adj[i, :]       # row i: what SN i sends out
+            incoming    = sn_adj[:, i]       # col i: what flows into SN i
+            excit_in    = float(sum(v for v in incoming if v > 0))
+            suppr_in    = float(sum(v for v in incoming if v < 0))
+            excit_out   = float(sum(v for v in outgoing if v > 0))
+            suppr_out   = float(sum(v for v in outgoing if v < 0))
+            inf_sn      = float(sng['sn_inf'][i])
+            print(f'  {sn:<22}'
+                  f'  in=(+{excit_in:.3f} / {suppr_in:.3f})'
+                  f'  out=(+{excit_out:.3f} / {suppr_out:.3f})'
+                  f'  inf={inf_sn:.4f}')
     else:
         print('  [PASS] No bottlenecks detected.')
 

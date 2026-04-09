@@ -345,7 +345,7 @@
   "orig_reach_total": 8.951816529035568,
   "surr_reach_total": 8.951816529035568,
   "inf_conservation": 0.9999999999998883,
-  "edge_conservation": 0.9856348408710083,
+  "edge_conservation": 0.9999999999999861,
   "dominant_paths": [
     {
       "src": "SN_EMB",
