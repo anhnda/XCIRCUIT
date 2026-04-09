@@ -528,12 +528,36 @@ def main():
             json.dump(out_map, f, indent=2)
         print(f'Supernode map saved → supernode_map.json')
 
-        # Print the full report
-        from structure_grouping import print_report
-        stats       = evaluate_grouping(final_sn, data, S)
+        from structure_grouping import (
+            print_report,
+            compute_supernode_flow,
+            print_supernode_flow_report,
+        )
+        stats = evaluate_grouping(final_sn, data, S)
         flow_result = compute_surrogate_flow(final_sn, data)
         dag_warnings = check_dag_safety(final_sn)
         print_report(final_sn, stats, flow_result, dag_warnings)
+
+        sn_flow = compute_supernode_flow(final_sn, data)
+        print_supernode_flow_report(sn_flow)
+
+        # ── ADD THIS BLOCK ──────────────────────────────────────────────
+        sn_flow_out = 'supernode_map_sn_flow.json'
+        with open(sn_flow_out, 'w') as f:
+            json.dump({
+                'sn_names': sn_flow['sn_names'],
+                'sn_adj': sn_flow['sn_adj'].tolist(),
+                'F_sn': sn_flow['F_sn'].tolist(),
+                'sn_reach': sn_flow['sn_reach'].tolist(),
+                'sn_act_norm': sn_flow['sn_act_norm'].tolist(),
+                'preservation': sn_flow['preservation'],
+                'orig_reach_total': sn_flow['orig_reach_total'],
+                'surr_reach_total': sn_flow['surr_reach_total'],
+                'dominant_paths': sn_flow['dominant_paths'],
+                'bottleneck_sns': sn_flow['bottleneck_sns'],
+            }, f, indent=2)
+        print(f'Supernode flow saved → {sn_flow_out}')
+        # ────────────────────────────────────────────────────────────────
 
     print(f'\n  ➜  Use:  python auto_grouping.py --file {args.file} '
           f'--target-k {best_k} --max-layer-span {args.max_layer_span}')

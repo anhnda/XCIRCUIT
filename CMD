@@ -8,9 +8,13 @@ python auto_grouping.py --file subgraph/austin_clt.pt \
     --max-layer-span 4 \
     --k-min 3 --k-max 5 \
     --alpha 0.7 --beta 0.3 --run-best
+
+
 python visualize_circuit_sp_rep.py \
     --file subgraph/austin_clt.pt \
     --supernode supernode_map.json \
-    --out circuit_supernode.html
+    --sn-flow supernode_map_sn_flow.json \
+    --out circuit_sp_rep.html
 
-open circuit_supernode.html
+open circuit_sp_rep.html
+
