@@ -798,13 +798,17 @@ function renderSNFlow() {
       const x2 = tgtPos.x + Math.cos(angle_t)*R_tgt;
       const y2 = tgtPos.y + Math.sin(angle_t)*R_tgt;
 
-      edgeG.append('path')
-        .attr('class','sn-flow-edge')
-        .attr('d',`M${x1},${y1} Q${cx2},${cy2} ${x2},${y2}`)
-        .attr('stroke', color)
-        .attr('stroke-width', strokeW)
-        .attr('opacity', opacity)
-        .attr('marker-end',`url(#snarrow-${src.replace(/[^a-zA-Z0-9]/g,'_')})`)
+    edgeG.append('path')
+      .attr('class','sn-flow-edge')
+      .attr('data-src', src)          // ← add
+      .attr('data-tgt', tgt)          // ← add
+      .attr('data-base-opacity', opacity)   // ← add
+      .attr('data-base-stroke', strokeW)    // ← add
+      .attr('d',`M${x1},${y1} Q${cx2},${cy2} ${x2},${y2}`)
+      .attr('stroke', color)
+      .attr('stroke-width', strokeW)
+      .attr('opacity', opacity)
+      .attr('marker-end',`url(#snarrow-${src.replace(/[^a-zA-Z0-9]/g,'_')})`)
         .on('mouseenter', function(ev) {
           d3.select(this).attr('opacity', Math.min(opacity*3, 0.95));
           tooltip.textContent = `${src} → ${tgt}  |  F=${w.toFixed(5)}  adj=${(sn_adj[i]&&sn_adj[i][j]||0).toFixed(3)}`;
@@ -840,13 +844,28 @@ function renderSNFlow() {
       .attr('class','sn-node')
       .attr('transform',`translate(${p.x},${p.y})`)
       .on('click', () => showSNInfo(sn, i))
-      .on('mouseenter', function(ev) {
-        // Highlight connected edges
-        edgeG.selectAll('.sn-flow-edge').attr('opacity', function() {
-          return 0.04;
-        });
-        showTooltipText(ev, `${sn}  |  reach=${sn_reach[i].toFixed(4)}  n=${members.length}`);
-      })
+         .on('mouseenter', function(ev) {
+          // Highlight only edges connected to this SN (incoming + outgoing)
+          edgeG.selectAll('.sn-flow-edge').each(function() {
+            const el = d3.select(this);
+            const edgeSrc = el.attr('data-src');
+            const edgeTgt = el.attr('data-tgt');
+            const isConnected = edgeSrc === sn || edgeTgt === sn;
+            el.attr('opacity', isConnected ? Math.min(0.95, currentOpacity * 4) : 0.02);
+            el.attr('stroke-width', isConnected ? parseFloat(el.attr('data-base-stroke')) * 2.2 : parseFloat(el.attr('data-base-stroke')) * 0.5);
+          });
+          showTooltipText(ev, `${sn}  |  reach=${sn_reach[i].toFixed(4)}  n=${members.length}`);
+        })
+        .on('mousemove', ev => moveTooltip(ev))
+        .on('mouseleave', function() {
+          // Restore all edges to their original opacity/width
+          edgeG.selectAll('.sn-flow-edge').each(function() {
+            const el = d3.select(this);
+            el.attr('opacity', el.attr('data-base-opacity'));
+            el.attr('stroke-width', el.attr('data-base-stroke'));
+          });
+          hideTooltip();
+        })
       .on('mousemove', ev => moveTooltip(ev))
       .on('mouseleave', function() {
         edgeG.selectAll('.sn-flow-edge').attr('opacity', function() {
