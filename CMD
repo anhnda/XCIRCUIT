@@ -18,3 +18,19 @@ python visualize_circuit_sp_rep.py \
 
 open circuit_sp_rep.html
 
+
+touch structure_grouping.py  # force reload
+python auto_grouping.py --file subgraph/austin_plt.pt \
+    --max-layer-span 10 \
+    --k-min 3 --k-max 10 \
+    --alpha 0.7 --beta 0.3 --run-best --max-sn 7
+
+
+python visualize_circuit_sp_rep.py \
+    --file subgraph/austin_plt.pt \
+    --supernode supernode_map.json \
+    --sn-flow supernode_map_sn_flow.json \
+    --out circuit_sp_rep.html
+
+open circuit_sp_rep.html
+

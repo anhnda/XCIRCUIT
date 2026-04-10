@@ -288,8 +288,10 @@ def enforce_dag(raw_clusters: dict,
                         break
             if changed:
                 break
+
     if max_sn is not None and len(final) > max_sn:
         final = merge_to_budget(final, layers, max_sn)
+
     final_supernodes = {}
     for idx, members in enumerate(final):
         lo = min(layers[n] for n in members)
@@ -297,12 +299,80 @@ def enforce_dag(raw_clusters: dict,
         name = f'SN_{idx:02d}_L{lo}' if lo == hi else f'SN_{idx:02d}_L{lo}_{hi}'
         final_supernodes[name] = members
 
+    # Each embedding and logit node gets its own supernode
     emb_nodes   = [n for n in data['kept_ids'] if n.startswith('E')]
     logit_nodes = [n for n in data['kept_ids'] if n.startswith('27')]
-    if emb_nodes:   final_supernodes['SN_EMB']   = emb_nodes
-    if logit_nodes: final_supernodes['SN_LOGIT'] = logit_nodes
+    for nid in emb_nodes:
+        final_supernodes[f'SN_EMB_{nid}'] = [nid]
+    for nid in logit_nodes:
+        final_supernodes[f'SN_LOGIT_{nid}'] = [nid]
 
     return final_supernodes
+#
+# def enforce_dag(raw_clusters: dict,
+#                 data: dict,
+#                 max_layer_span: int = 4, max_sn=None) -> dict:
+#     layers = {nid: parse_layer(nid)
+#               for members in raw_clusters.values() for nid in members}
+#
+#     queue = list(raw_clusters.values())
+#     final: list[list[str]] = []
+#
+#     while queue:
+#         members = queue.pop()
+#         lvals   = sorted(set(layers[n] for n in members))
+#         if lvals[-1] - lvals[0] <= max_layer_span or len(members) == 1:
+#             final.append(members)
+#         else:
+#             mid = (lvals[0] + lvals[-1]) / 2
+#             lower = [n for n in members if layers[n] <= mid]
+#             upper = [n for n in members if layers[n] >  mid]
+#             if not lower or not upper:
+#                 half = len(members) // 2
+#                 lower, upper = members[:half], members[half:]
+#             queue.extend([lower, upper])
+#
+#     final.sort(key=lambda m: min(layers[n] for n in m))
+#
+#     # resolve interleaving
+#     changed = True
+#     while changed:
+#         changed = False
+#         for i in range(len(final)):
+#             for j in range(i + 1, len(final)):
+#                 lo_i = min(layers[n] for n in final[i])
+#                 hi_i = max(layers[n] for n in final[i])
+#                 lo_j = min(layers[n] for n in final[j])
+#                 hi_j = max(layers[n] for n in final[j])
+#                 if (lo_i < lo_j < hi_i) or (lo_j < lo_i < hi_j):
+#                     victim = i if (hi_i-lo_i) >= (hi_j-lo_j) else j
+#                     other  = j if victim == i else i
+#                     split  = min(layers[n] for n in final[other])
+#                     lo_part = [n for n in final[victim] if layers[n] <  split]
+#                     hi_part = [n for n in final[victim] if layers[n] >= split]
+#                     if lo_part and hi_part:
+#                         final[victim] = lo_part
+#                         final.append(hi_part)
+#                         final.sort(key=lambda m: min(layers[n] for n in m))
+#                         changed = True
+#                         break
+#             if changed:
+#                 break
+#     if max_sn is not None and len(final) > max_sn:
+#         final = merge_to_budget(final, layers, max_sn)
+#     final_supernodes = {}
+#     for idx, members in enumerate(final):
+#         lo = min(layers[n] for n in members)
+#         hi = max(layers[n] for n in members)
+#         name = f'SN_{idx:02d}_L{lo}' if lo == hi else f'SN_{idx:02d}_L{lo}_{hi}'
+#         final_supernodes[name] = members
+#
+#     emb_nodes   = [n for n in data['kept_ids'] if n.startswith('E')]
+#     logit_nodes = [n for n in data['kept_ids'] if n.startswith('27')]
+#     if emb_nodes:   final_supernodes['SN_EMB']   = emb_nodes
+#     if logit_nodes: final_supernodes['SN_LOGIT'] = logit_nodes
+#
+#     return final_supernodes
 
 
 # ─────────────────────────────────────────────────────────────────────────────
