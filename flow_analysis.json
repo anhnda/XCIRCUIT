@@ -4,284 +4,177 @@
       {
         "path": [
           "SN_EMB_E_26865_9",
+          "SN_02_L16_22",
           "SN_LOGIT_27_22605_10"
         ],
-        "flow": 18.85403060913086,
-        "frac": 0.3087020363546803,
+        "flow": 35.56054687500001,
+        "frac": 0.45619288036430716,
+        "length": 3
+      },
+      {
+        "path": [
+          "SN_EMB_E_26865_9",
+          "SN_LOGIT_27_22605_10"
+        ],
+        "flow": 18.625,
+        "frac": 0.2389331195229325,
         "length": 2
       },
       {
         "path": [
-          "SN_EMB_E_26865_9",
-          "SN_01_L19_22",
-          "SN_LOGIT_27_22605_10"
-        ],
-        "flow": 13.160318720900992,
-        "frac": 0.21547738371928093,
-        "length": 3
-      },
-      {
-        "path": [
-          "SN_EMB_E_26865_9",
-          "SN_00_L16_19",
-          "SN_01_L19_22",
-          "SN_LOGIT_27_22605_10"
-        ],
-        "flow": 8.59518374673606,
-        "frac": 0.14073121978358705,
-        "length": 4
-      },
-      {
-        "path": [
           "SN_EMB_E_6037_4",
-          "SN_01_L19_22",
+          "SN_02_L16_22",
           "SN_LOGIT_27_22605_10"
         ],
-        "flow": 6.224299887483381,
-        "frac": 0.10191211046500488,
+        "flow": 11.783203125,
+        "frac": 0.15116228083912037,
         "length": 3
       },
       {
         "path": [
-          "SN_EMB_E_6037_4",
-          "SN_00_L16_19",
-          "SN_01_L19_22",
+          "SN_EMB_E_26865_9",
+          "SN_01_L7",
+          "SN_02_L16_22",
           "SN_LOGIT_27_22605_10"
         ],
-        "flow": 4.554669385161589,
-        "frac": 0.07457480807529666,
+        "flow": 4.235969387755102,
+        "frac": 0.054341657987649554,
         "length": 4
       },
       {
         "path": [
-          "SN_EMB_E_2329_7",
-          "SN_01_L19_22",
+          "SN_EMB_E_26865_9",
+          "SN_01_L7",
           "SN_LOGIT_27_22605_10"
         ],
-        "flow": 3.5666614258622698,
-        "frac": 0.058397892099429784,
+        "flow": 3.451530612244898,
+        "frac": 0.04427838798993668,
         "length": 3
       },
       {
         "path": [
           "SN_EMB_E_2329_7",
-          "SN_00_L16_19",
-          "SN_01_L19_22",
+          "SN_02_L16_22",
           "SN_LOGIT_27_22605_10"
         ],
-        "flow": 2.2975407628686657,
-        "frac": 0.037618243377729316,
-        "length": 4
+        "flow": 2.56787109375,
+        "frac": 0.03294225240066857,
+        "length": 3
       },
       {
         "path": [
           "SN_EMB_E_2329_7",
           "SN_LOGIT_27_22605_10"
         ],
-        "flow": 1.7139935493469238,
-        "frac": 0.02806367030750105,
+        "flow": 1.7265625,
+        "frac": 0.02214942089537252,
         "length": 2
-      },
-      {
-        "path": [
-          "SN_EMB_E_26865_9",
-          "SN_00_L16_19",
-          "SN_LOGIT_27_22605_10"
-        ],
-        "flow": 1.1731906820253122,
-        "frac": 0.019208961737770584,
-        "length": 3
-      },
-      {
-        "path": [
-          "SN_EMB_E_6037_4",
-          "SN_00_L16_19",
-          "SN_LOGIT_27_22605_10"
-        ],
-        "flow": 0.6216848690880724,
-        "frac": 0.010179011004969818,
-        "length": 3
       }
     ],
-    "total_flow": 61.075174079734246,
-    "n_paths": 11,
+    "total_flow": 77.95068359375,
+    "n_paths": 7,
     "concentration": {
-      "1": 0.3087020363546803,
-      "2": 0.5241794200739612,
-      "3": 0.6649106398575483,
-      "4": 0.7668227503225532,
-      "5": 0.8413975583978498,
-      "6": 0.8997954504972796,
-      "7": 0.937413693875009,
-      "8": 0.96547736418251,
-      "9": 0.9846863259202806,
-      "10": 0.9948653369252504
+      "1": 0.45619288036430716,
+      "2": 0.6951259998872397,
+      "3": 0.8462882807263599,
+      "4": 0.9006299387140095,
+      "5": 0.9449083267039462,
+      "6": 0.9778505791046147,
+      "7": 0.9999999999999872
     },
-    "D_phi": 0.005134663074749635,
+    "D_phi": 1.27675647831893e-14,
     "top_k": 10,
-    "top_k_frac": 0.9948653369252504
+    "top_k_frac": 0.9999999999999872
   },
   "local_residuals": {
     "per_sn": {
-      "SN_00_L16_19": {
-        "in_flow_pos": 307.3963966369629,
+      "SN_00_L1": {
+        "in_flow_pos": 9.6875,
         "in_flow_neg": 0.0,
-        "in_flow_net": 307.3963966369629,
-        "out_flow_pos": 276.4789140820503,
-        "out_flow_neg": 0.0,
-        "inf_exit": 0.6335847973823547,
-        "total_out": 277.1124988794327,
-        "residual_abs": 30.283897757530212,
-        "residual_rel": 0.09851741298482294,
-        "balance": 30.283897757530212,
-        "is_suppressive": false
-      },
-      "SN_01_L19_22": {
-        "in_flow_pos": 498.9082832336426,
-        "in_flow_neg": 0.0,
-        "in_flow_net": 498.9082832336426,
-        "out_flow_pos": 388.24982929229736,
-        "out_flow_neg": 0.0,
-        "inf_exit": 9.80747640132904,
-        "total_out": 398.0573056936264,
-        "residual_abs": 100.85097754001617,
-        "residual_rel": 0.2021433215867989,
-        "balance": 100.85097754001617,
-        "is_suppressive": false
-      },
-      "SN_02_L22_25": {
-        "in_flow_pos": 700.3512706756592,
-        "in_flow_neg": 0.0,
-        "in_flow_net": 700.3512706756592,
+        "in_flow_net": 9.6875,
         "out_flow_pos": 0.0,
-        "out_flow_neg": -2.25288724899292,
-        "inf_exit": -2.2528874576091766,
-        "total_out": -4.505774706602097,
-        "residual_abs": 704.8570453822613,
-        "residual_rel": 1.006433592534578,
-        "balance": 704.8570453822613,
-        "is_suppressive": true
+        "out_flow_neg": -1.515625,
+        "inf_exit": 0.0,
+        "total_out": -1.515625,
+        "residual_abs": 11.203125,
+        "residual_rel": 1.1564516129031064,
+        "balance": 11.203125,
+        "is_suppressive": false
+      },
+      "SN_01_L7": {
+        "in_flow_pos": 5.125,
+        "in_flow_neg": -0.9765625,
+        "in_flow_net": 4.1484375,
+        "out_flow_pos": 2.375,
+        "out_flow_neg": 0.0,
+        "inf_exit": 0.6875,
+        "total_out": 3.0625,
+        "residual_abs": 1.0859375,
+        "residual_rel": 0.2617702448210292,
+        "balance": 1.0859375,
+        "is_suppressive": false
+      },
+      "SN_02_L16_22": {
+        "in_flow_pos": 34.9619140625,
+        "in_flow_neg": -0.5390625,
+        "in_flow_net": 34.4228515625,
+        "out_flow_pos": 8.591796875,
+        "out_flow_neg": 0.0,
+        "inf_exit": 8.591796875,
+        "total_out": 17.18359375,
+        "residual_abs": 17.2392578125,
+        "residual_rel": 0.500808533575406,
+        "balance": 17.2392578125,
+        "is_suppressive": false
       }
     },
-    "R_phi": 0.43569810903539996,
-    "R_phi_max": 1.006433592534578,
+    "R_phi": 0.6396767970998473,
+    "R_phi_max": 1.1564516129031064,
     "n_middle": 3
   },
   "shortcut_analysis": {
     "edges": [
       {
-        "src": "SN_01_L19_22",
-        "tgt": "SN_02_L22_25",
-        "weight": 378.4423522949219,
-        "shortcut_ratio": 0.9999999999999973,
+        "src": "SN_EMB_E_26865_9",
+        "tgt": "SN_02_L16_22",
+        "weight": 23.70703125,
+        "shortcut_ratio": 0.9335486848176836,
+        "is_shortcut": false,
+        "best_mediator": "SN_01_L7",
+        "mediation_strength": 1.6875
+      },
+      {
+        "src": "SN_EMB_E_26865_9",
+        "tgt": "SN_00_L1",
+        "weight": 9.6875,
+        "shortcut_ratio": 0.9999999999998967,
         "is_shortcut": false,
         "best_mediator": null,
         "mediation_strength": 0.0
       },
       {
-        "src": "SN_00_L16_19",
-        "tgt": "SN_01_L19_22",
-        "weight": 188.39944458007812,
-        "shortcut_ratio": 0.9999999999999947,
-        "is_shortcut": false,
-        "best_mediator": null,
-        "mediation_strength": 0.0
-      },
-      {
-        "src": "SN_EMB_E_26865_9",
-        "tgt": "SN_02_L22_25",
-        "weight": 184.50502014160156,
-        "shortcut_ratio": 0.5089070253979996,
-        "is_shortcut": false,
-        "best_mediator": "SN_01_L19_22",
-        "mediation_strength": 178.0465087890625
-      },
-      {
-        "src": "SN_EMB_E_26865_9",
-        "tgt": "SN_01_L19_22",
-        "weight": 178.0465087890625,
-        "shortcut_ratio": 0.510034898521532,
-        "is_shortcut": false,
-        "best_mediator": "SN_00_L16_19",
-        "mediation_strength": 171.0404052734375
-      },
-      {
-        "src": "SN_EMB_E_26865_9",
-        "tgt": "SN_00_L16_19",
-        "weight": 171.0404052734375,
-        "shortcut_ratio": 0.9999999999999942,
+        "src": "SN_02_L16_22",
+        "tgt": "SN_LOGIT_27_22605_10",
+        "weight": 8.591796875,
+        "shortcut_ratio": 0.9999999999998836,
         "is_shortcut": false,
         "best_mediator": null,
         "mediation_strength": 0.0
       },
       {
         "src": "SN_EMB_E_6037_4",
-        "tgt": "SN_00_L16_19",
-        "weight": 90.63593292236328,
-        "shortcut_ratio": 0.999999999999989,
+        "tgt": "SN_02_L16_22",
+        "weight": 7.85546875,
+        "shortcut_ratio": 0.9999999999998727,
         "is_shortcut": false,
         "best_mediator": null,
         "mediation_strength": 0.0
       },
       {
-        "src": "SN_00_L16_19",
-        "tgt": "SN_02_L22_25",
-        "weight": 87.44588470458984,
-        "shortcut_ratio": 0.3170105686812147,
-        "is_shortcut": true,
-        "best_mediator": "SN_01_L19_22",
-        "mediation_strength": 188.39944458007812
-      },
-      {
-        "src": "SN_EMB_E_6037_4",
-        "tgt": "SN_01_L19_22",
-        "weight": 84.20881652832031,
-        "shortcut_ratio": 0.48162050500733866,
-        "is_shortcut": true,
-        "best_mediator": "SN_00_L16_19",
-        "mediation_strength": 90.63593292236328
-      },
-      {
-        "src": "SN_EMB_E_2329_7",
-        "tgt": "SN_01_L19_22",
-        "weight": 48.25351333618164,
-        "shortcut_ratio": 0.5134796137206594,
-        "is_shortcut": false,
-        "best_mediator": "SN_00_L16_19",
-        "mediation_strength": 45.72005844116211
-      },
-      {
-        "src": "SN_EMB_E_2329_7",
-        "tgt": "SN_00_L16_19",
-        "weight": 45.72005844116211,
-        "shortcut_ratio": 0.9999999999999781,
-        "is_shortcut": false,
-        "best_mediator": null,
-        "mediation_strength": 0.0
-      },
-      {
-        "src": "SN_EMB_E_2329_7",
-        "tgt": "SN_02_L22_25",
-        "weight": 26.45392608642578,
-        "shortcut_ratio": 0.3541002916293251,
-        "is_shortcut": true,
-        "best_mediator": "SN_01_L19_22",
-        "mediation_strength": 48.25351333618164
-      },
-      {
-        "src": "SN_EMB_E_6037_4",
-        "tgt": "SN_02_L22_25",
-        "weight": 23.504087448120117,
-        "shortcut_ratio": 0.21184401394683736,
-        "is_shortcut": true,
-        "best_mediator": "SN_00_L16_19",
-        "mediation_strength": 87.44588470458984
-      },
-      {
-        "src": "SN_01_L19_22",
-        "tgt": "SN_LOGIT_27_22605_10",
-        "weight": 9.807476997375488,
-        "shortcut_ratio": 0.9999999999998981,
+        "src": "SN_EMB_E_26865_9",
+        "tgt": "SN_01_L7",
+        "weight": 5.125,
+        "shortcut_ratio": 0.9999999999998048,
         "is_shortcut": false,
         "best_mediator": null,
         "mediation_strength": 0.0
@@ -289,48 +182,66 @@
       {
         "src": "SN_EMB_E_26865_9",
         "tgt": "SN_LOGIT_27_22605_10",
-        "weight": 4.713507652282715,
-        "shortcut_ratio": 0.32459972694712114,
+        "weight": 4.65625,
+        "shortcut_ratio": 0.35146690255046736,
         "is_shortcut": true,
-        "best_mediator": "SN_01_L19_22",
-        "mediation_strength": 9.807476997375488
+        "best_mediator": "SN_02_L16_22",
+        "mediation_strength": 8.591796875
       },
       {
-        "src": "SN_00_L16_19",
+        "src": "SN_EMB_E_2329_7",
+        "tgt": "SN_02_L16_22",
+        "weight": 1.7119140625,
+        "shortcut_ratio": 0.9999999999994158,
+        "is_shortcut": false,
+        "best_mediator": null,
+        "mediation_strength": 0.0
+      },
+      {
+        "src": "SN_01_L7",
+        "tgt": "SN_02_L16_22",
+        "weight": 1.6875,
+        "shortcut_ratio": 0.9999999999994074,
+        "is_shortcut": false,
+        "best_mediator": null,
+        "mediation_strength": 0.0
+      },
+      {
+        "src": "SN_01_L7",
         "tgt": "SN_LOGIT_27_22605_10",
-        "weight": 0.6335847973823547,
-        "shortcut_ratio": 0.06068202734901912,
+        "weight": 0.6875,
+        "shortcut_ratio": 0.2894736842104044,
         "is_shortcut": true,
-        "best_mediator": "SN_01_L19_22",
-        "mediation_strength": 9.807476997375488
+        "best_mediator": "SN_02_L16_22",
+        "mediation_strength": 1.6875
       },
       {
         "src": "SN_EMB_E_2329_7",
         "tgt": "SN_LOGIT_27_22605_10",
-        "weight": 0.42849838733673096,
-        "shortcut_ratio": 0.041861998610964436,
+        "weight": 0.431640625,
+        "shortcut_ratio": 0.201366742596717,
         "is_shortcut": true,
-        "best_mediator": "SN_01_L19_22",
-        "mediation_strength": 9.807476997375488
+        "best_mediator": "SN_02_L16_22",
+        "mediation_strength": 1.7119140625
       }
     ],
-    "n_shortcuts": 7,
-    "n_direct": 9,
-    "n_total": 16,
-    "global_shortcut_frac": 0.14937753063664957
+    "n_shortcuts": 3,
+    "n_direct": 7,
+    "n_total": 10,
+    "global_shortcut_frac": 0.0900412600295353
   },
   "combined": {
-    "F_phi": 0.8224234428684853,
-    "path_score": 0.9948653369252504,
-    "residual_score": 0.5643018909646,
-    "shortcut_score": 0.8506224693633504,
-    "D_phi": 0.005134663074749635,
-    "R_phi": 0.43569810903539996,
-    "R_phi_max": 1.006433592534578,
-    "shortcut_frac": 0.14937753063664957,
-    "n_paths": 11,
-    "top_k_frac": 0.9948653369252504,
-    "n_shortcuts": 7,
-    "n_direct": 9
+    "F_phi": 0.7810845828611801,
+    "path_score": 0.9999999999999872,
+    "residual_score": 0.36032320290015274,
+    "shortcut_score": 0.9099587399704647,
+    "D_phi": 1.27675647831893e-14,
+    "R_phi": 0.6396767970998473,
+    "R_phi_max": 1.1564516129031064,
+    "shortcut_frac": 0.0900412600295353,
+    "n_paths": 7,
+    "top_k_frac": 0.9999999999999872,
+    "n_shortcuts": 3,
+    "n_direct": 7
   }
 }
