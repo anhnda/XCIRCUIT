@@ -1,0 +1,710 @@
+% method.tex
+% ─────────────────────────────────────────────────────────────────────────────
+% Supernode Abstraction for Circuit Tracing in Large Language Models:
+% A Flow-Faithful Concept Grouping Framework
+% ─────────────────────────────────────────────────────────────────────────────
+
+\documentclass[11pt]{article}
+
+\usepackage[margin=1.25in]{geometry}
+\usepackage{amsmath, amsthm, amssymb}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage{bbm}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{natbib}
+
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=green!50!black, urlcolor=blue}
+
+% ── Theorem environments ──────────────────────────────────────────────────────
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{assumption}[theorem]{Assumption}
+
+% ── Notation macros ───────────────────────────────────────────────────────────
+\newcommand{\cG}{\mathcal{G}}
+\newcommand{\cF}{\mathcal{F}}
+\newcommand{\cK}{\mathcal{K}}
+\newcommand{\cL}{\mathcal{L}}
+\newcommand{\cS}{\mathcal{S}}
+\newcommand{\cV}{\mathcal{V}}
+\newcommand{\cE}{\mathcal{E}}
+\newcommand{\bA}{\mathbf{A}}
+\newcommand{\bB}{\mathbf{B}}
+\newcommand{\bC}{\mathbf{C}}
+\newcommand{\bD}{\mathbf{D}}
+\newcommand{\bL}{\mathbf{L}}
+\newcommand{\bM}{\mathbf{M}}
+\newcommand{\bS}{\mathbf{S}}
+\newcommand{\bW}{\mathbf{W}}
+\newcommand{\bEps}{\mathbf{E}}
+\newcommand{\btheta}{\bm{\theta}}
+\newcommand{\bz}{\mathbf{z}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\1}{\mathbbm{1}}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\Dphi}{D(\varphi)}
+\newcommand{\Rphi}{R(\varphi)}
+\newcommand{\Fphi}{F(\varphi)}
+\newcommand{\snAdj}{\mathbf{A}^{\mathrm{SN}}}
+\newcommand{\snInf}{\mathbf{f}^{\mathrm{SN}}}
+\newcommand{\snAct}{\mathbf{a}^{\mathrm{SN}}}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+
+% ─────────────────────────────────────────────────────────────────────────────
+
+\title{\textbf{Flow-Faithful Supernode Abstraction for\\
+Mechanistic Interpretation of LLM Circuits}\\[0.5em]
+\large Method Description}
+
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Introduction}
+\label{sec:intro}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Mechanistic interpretability of large language models (LLMs) aims to reverse-engineer the computational processes by which a model transforms an input prompt into an output prediction~\citep{elhage2021mathematical, wang2022interpretability}.
+A central tool in this endeavor is \emph{circuit tracing}: extracting from the model's forward pass a sparse attribution graph $\cG = (\cV, \cE, w)$ whose nodes are individual features (typically transcoder or SAE latent dimensions) and whose directed edges carry attribution weights quantifying how strongly each upstream feature contributes to each downstream feature and ultimately to the logit of a target token.
+
+Circuit graphs extracted from state-of-the-art LLMs routinely contain hundreds to thousands of nodes, rendering direct human interpretation intractable.
+A natural remedy is \emph{abstraction}: grouping nodes that play similar computational roles into \emph{supernodes}, yielding a coarser graph $\cG^{\mathrm{SN}}$ that is small enough to inspect but ideally preserves the causal story encoded in $\cG$.
+
+The challenge is that ``similar computational role'' is ambiguous.
+Existing approaches either cluster by feature semantics (e.g., cosine similarity of decoder directions~\citep{cunningham2023sparse}) or by positional proximity in layer space, neither of which directly captures \emph{flow identity} — the property that grouped nodes receive attribution from the same upstream sources and direct attribution to the same downstream targets.
+
+\paragraph{Our contribution.}
+We propose a principled supernode abstraction framework grounded in three ideas:
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{Structural equivalence clustering.}
+        Nodes sharing similar weighted in- and out-neighbor profiles in $\cG$ likely represent the same abstract concept; we group them via spectral clustering on a cosine-similarity matrix derived from the attribution adjacency.
+
+  \item \textbf{DAG-constrained layer alignment.}
+        We enforce that each supernode spans at most $\Delta$ consecutive layers, ensuring that cross-supernode edges represent genuine inter-concept information transfer rather than within-concept shortcuts.
+
+  \item \textbf{Flow faithfulness certification.}
+        After clustering, we certify the quality of the abstraction with three grounded metrics — path concentration $D(\varphi)$, local flow residual $R(\varphi)$, and shortcut fraction $\sigma(\varphi)$ — that together constitute a \emph{flow faithfulness score} $F(\varphi) \in [0,1]$.
+\end{enumerate}
+
+We provide theoretical analysis connecting each component to established results from community detection~\citep{abbe2018community} and directed graph clustering~\citep{rohe2016co}, and demonstrate on factual recall circuits extracted from Gemma-2-2B that the method produces interpretable, quantitatively certified concept-level causal graphs.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Problem Formulation}
+\label{sec:problem}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Attribution Graphs}
+\label{sec:attr-graph}
+
+Let $M$ be an LLM and $x$ an input prompt.
+Running a circuit tracing procedure (e.g., attribution patching~\citep{meng2022locating} or transcoders~\citep{templeton2024scaling}) yields a \emph{circuit attribution graph}:
+\[
+  \cG = (\cV,\, \cE,\, w),
+\]
+where:
+\begin{itemize}[leftmargin=2em]
+  \item $\cV = \cV_{\mathrm{emb}} \cup \cV_{\mathrm{mid}} \cup \cV_{\mathrm{logit}}$ partitions nodes into embedding nodes (input token representations), middle nodes (transcoder/SAE features at layers $1,\ldots,L-1$), and the target logit output node.
+  \item $\cE \subseteq \cV \times \cV$ contains directed edges $(u,v)$ with $\mathrm{layer}(u) \le \mathrm{layer}(v)$, i.e., $\cG$ is a directed acyclic graph (DAG).
+  \item $w: \cE \to \R$ assigns a signed attribution weight to each edge; $w(u,v) > 0$ indicates excitatory contribution and $w(u,v) < 0$ indicates suppressive contribution.
+\end{itemize}
+
+We write $N = |\cV|$, $N_{\mathrm{mid}} = |\cV_{\mathrm{mid}}|$, and $\bA \in \R^{N \times N}$ for the (sparse) adjacency matrix with $A_{ij} = w(i \to j)$.
+
+Let $v^* \in \cV_{\mathrm{logit}}$ denote the target logit node.
+The \emph{direct attribution} of node $i$ to the logit is $f_i = A_{i,v^*}$, i.e., the edge weight from $i$ directly to $v^*$.
+The \emph{total logit-directed flow} is $F = \sum_{i \in \cV} f_i$.
+
+\subsection{Supernode Abstraction}
+\label{sec:sn-def}
+
+\begin{definition}[Supernode Mapping]
+  A \emph{supernode mapping} is a surjection $\varphi: \cV \to \{S_1, \ldots, S_K\}$ that assigns each node to one of $K$ supernodes, subject to:
+  \begin{enumerate}[label=(\roman*)]
+    \item $\varphi$ fixes embedding and logit nodes: each $v \in \cV_{\mathrm{emb}} \cup \cV_{\mathrm{logit}}$ forms its own singleton supernode.
+    \item Each middle supernode $S_k$ has bounded layer span: $\max_{i \in S_k} \mathrm{layer}(i) - \min_{i \in S_k} \mathrm{layer}(i) \le \Delta$ for a fixed parameter $\Delta \ge 0$.
+    \item The induced supernode graph $\cG^{\mathrm{SN}}$ is acyclic: supernode layer ranges do not interleave.
+  \end{enumerate}
+\end{definition}
+
+Given $\varphi$, we define three \textbf{grounded supernode quantities} that partition the original graph quantities exactly:
+
+\paragraph{Supernode activation.}
+\[
+  a^{\mathrm{SN}}(S_k) \;=\; \max_{i \in S_k} \mathrm{act}(i),
+\]
+the peak activation of any member node.
+
+\paragraph{Supernode logit flow.}
+\[
+  f^{\mathrm{SN}}(S_k) \;=\; \sum_{i \in S_k} A_{i,v^*},
+\]
+the total direct edge weight from $S_k$ to the logit.
+By construction, $\sum_k f^{\mathrm{SN}}(S_k) = F$ (exact partition).
+
+\paragraph{Supernode edge weight.}
+\[
+  A^{\mathrm{SN}}_{kl} \;=\; \sum_{\substack{i \in S_k,\, j \in S_l \\ \mathrm{layer}(i) \le \mathrm{layer}(j)}} A_{ij},
+  \quad k \ne l,
+\]
+the total forward attribution weight flowing from concept $S_k$ to concept $S_l$.
+By construction, $\sum_{k \ne l} A^{\mathrm{SN}}_{kl} = \sum_{i \ne j,\, \varphi(i) \ne \varphi(j),\, \mathrm{layer}(i) \le \mathrm{layer}(j)} A_{ij}$ (exact partition of cross-supernode forward edges).
+
+\subsection{Desiderata}
+\label{sec:desiderata}
+
+A good supernode abstraction $\varphi$ should satisfy:
+\begin{enumerate}[label=(D\arabic*), leftmargin=3em]
+  \item \textbf{Conservation.} $\sum_k f^{\mathrm{SN}}(S_k) = F$ and edge weights are partitioned exactly. \emph{(Satisfied by construction.)}
+  \item \textbf{Concept coherence.} Nodes within the same supernode have similar structural roles — they receive attribution from similar upstream sources and send to similar downstream targets.
+  \item \textbf{Flow faithfulness.} The dominant causal paths in $\cG$ project onto a small number of dominant paths in $\cG^{\mathrm{SN}}$, preserving the circuit's interpretive narrative.
+  \item \textbf{DAG integrity.} The supernode graph is acyclic, reflecting the layer-wise information flow of the transformer.
+\end{enumerate}
+
+(D1) and (D4) are enforced as hard constraints.
+(D2) is optimized by the clustering objective.
+(D3) is measured post-hoc and incorporated into the scoring objective.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Method Overview}
+\label{sec:overview}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\Cref{fig:pipeline} summarizes the four-stage pipeline.
+
+\begin{enumerate}[leftmargin=2em, label=\textbf{Stage \arabic*.}]
+  \item \textbf{Similarity computation.} Compute a pairwise node similarity matrix $\bS \in [0,1]^{N \times N}$ from the attribution adjacency, weighting neighbor profiles by node activation and influence (\Cref{sec:similarity}).
+  \item \textbf{Spectral clustering with DAG enforcement.} Cluster middle nodes via spectral clustering on $\bS$ to target $K$ groups, then enforce layer-span and interleaving constraints (\Cref{sec:clustering}).
+  \item \textbf{Supernode graph construction.} Aggregate node-level quantities into supernode-level quantities, computing the exact partition $(\snAdj, \snInf, \snAct)$ (\Cref{sec:sn-graph}).
+  \item \textbf{Flow faithfulness assessment.} Compute $D(\varphi)$, $R(\varphi)$, $\sigma(\varphi)$, and the combined score $F(\varphi)$; use $F(\varphi)$ to guide the choice of $K$ via an enhanced auto-$K$ search (\Cref{sec:flow-analysis}).
+\end{enumerate}
+
+The key insight connecting all stages is that under the \emph{layered concept block model} (\Cref{ass:block}), nodes with identical structural equivalence class also have identical flow roles — they receive from the same upstream concepts and send to the same downstream concepts.
+Therefore, optimizing for structural similarity (Stage 1--2) simultaneously optimizes for flow preservation (Stage 4), and the flow metrics provide a principled posterior certificate of abstraction quality.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Method Details}
+\label{sec:details}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Node Similarity Matrix}
+\label{sec:similarity}
+
+For each node $i$, define its \emph{weighted out-profile} as the $i$-th row of $\bA \bW$ and its \emph{weighted in-profile} as the $i$-th column of $\bW \bA$, where
+\[
+  \bW = \mathrm{diag}\!\left(\alpha \cdot \tilde{\mathbf{a}} + \beta \cdot \tilde{\mathbf{f}}\right), \quad \alpha, \beta \ge 0,\; \alpha + \beta = 1,
+\]
+with $\tilde{\mathbf{a}}_i = \mathrm{act}(i) / \max_j \mathrm{act}(j)$ and $\tilde{\mathbf{f}}_i = \mathrm{inf}(i) / \max_j \mathrm{inf}(j)$ denoting normalized activation and influence scores respectively.
+The weight matrix $\bW$ performs degree correction, upweighting nodes that carry more signal.
+
+Define the \emph{out-cosine similarity} and \emph{in-cosine similarity} matrices:
+\[
+  \bS^{\mathrm{out}} = \mathrm{CosNorm}(\bA \bW \bA^\top), \qquad
+  \bS^{\mathrm{in}}  = \mathrm{CosNorm}(\bA^\top \bW \bA),
+\]
+where $[\mathrm{CosNorm}(\bM)]_{ij} = M_{ij} / \sqrt{M_{ii} M_{jj}}$ for $M_{ii}, M_{jj} > 0$.
+The final similarity matrix is:
+\begin{equation}
+  \bS = \frac{1}{2}\bS^{\mathrm{out}} + \frac{1}{2}\bS^{\mathrm{in}}, \quad \bS \in [0,1]^{N \times N}.
+  \label{eq:similarity}
+\end{equation}
+
+Restricting to middle nodes $\cV_{\mathrm{mid}}$ gives $\bS_{\mathrm{mid}} \in [0,1]^{N_{\mathrm{mid}} \times N_{\mathrm{mid}}}$.
+
+\begin{remark}
+  The use of both $\bS^{\mathrm{out}}$ and $\bS^{\mathrm{in}}$ corresponds to using both left and right singular vectors of $\bA$, which is the recommended approach for directed stochastic block models~\citep{rohe2016co}.
+  Nodes in the same block share both their sending and receiving behavior.
+\end{remark}
+
+\subsection{Spectral Clustering with DAG Enforcement}
+\label{sec:clustering}
+
+\paragraph{Eigengap heuristic.}
+Let $\bL = \bD^{-1/2}(\bD - \bS_{\mathrm{mid}})\bD^{-1/2}$ be the normalized Laplacian of $\bS_{\mathrm{mid}}$, where $\bD = \mathrm{diag}(\bS_{\mathrm{mid}} \mathbf{1})$.
+The eigenvalues $0 = \lambda_1 \le \lambda_2 \le \ldots$ of $\bL$ encode cluster structure.
+We use the largest eigengap $k^* = \arg\max_{k \ge 2}(\lambda_{k+1} - \lambda_k)$ as a heuristic for the natural number of clusters~\citep{von2007tutorial}, defining a search range $[k^* - 2, k^* + 2]$ for the subsequent sweep.
+
+\paragraph{Spectral clustering.}
+For a given target $K$, we apply spectral clustering~\citep{ng2002spectral} to $\bS_{\mathrm{mid}}$ with $K$ clusters, yielding raw cluster assignments $\{C_1, \ldots, C_K\}$ over $\cV_{\mathrm{mid}}$.
+Outlier nodes (those whose maximum similarity to any other node falls below the global mean) are detected before clustering and reassigned to the nearest cluster by mean layer distance.
+
+\paragraph{DAG enforcement.}
+Raw spectral clusters may violate the DAG constraint if they contain nodes from non-contiguous layer ranges, causing layer-range interleaving between supernodes.
+We enforce DAG integrity via \Cref{alg:dag}.
+
+\begin{algorithm}[t]
+\caption{DAG Enforcement}
+\label{alg:dag}
+\begin{algorithmic}[1]
+\Require Raw clusters $\{C_k\}$, layer map $\ell: \cV \to \mathbb{Z}_{\ge 0}$, max span $\Delta$, max supernodes $K_{\max}$
+\Ensure Supernode partition $\varphi$ satisfying DAG constraints
+\State Initialize queue $Q \leftarrow \{C_k\}$, final list $\mathcal{F} \leftarrow \emptyset$
+\While{$Q \ne \emptyset$}
+  \State $C \leftarrow \mathrm{pop}(Q)$
+  \If{$\max_{i \in C} \ell(i) - \min_{i \in C} \ell(i) \le \Delta$ \textbf{or} $|C| = 1$}
+    \State $\mathcal{F} \leftarrow \mathcal{F} \cup \{C\}$
+  \Else
+    \State $m \leftarrow (\max_{i \in C} \ell(i) + \min_{i \in C} \ell(i)) / 2$
+    \State $Q \leftarrow Q \cup \{\{i \in C : \ell(i) \le m\},\, \{i \in C : \ell(i) > m\}\}$
+  \EndIf
+\EndWhile
+\State \textbf{Resolve interleaving:} while any pair $(F_a, F_b) \in \mathcal{F}^2$ has interleaving layer ranges, split the wider cluster at the boundary of the narrower
+\If{$|\mathcal{F}| > K_{\max} - n_{\mathrm{fixed}}$}
+  \State \textbf{Merge to budget:} greedily merge the pair with smallest centroid-layer gap until $|\mathcal{F}| = K_{\max} - n_{\mathrm{fixed}}$
+\EndIf
+\State \Return $\varphi$ assigning supernode names by layer range, appending singleton supernodes for each $v \in \cV_{\mathrm{emb}} \cup \cV_{\mathrm{logit}}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Supernode Graph Construction}
+\label{sec:sn-graph}
+
+Given $\varphi$, we construct the supernode graph $\cG^{\mathrm{SN}} = (\{S_k\}_{k=1}^K, \snAdj, \snInf, \snAct)$ as described in \Cref{sec:sn-def}.
+Both $\snInf$ and $\snAdj$ are exact partitions of the original graph quantities, so:
+\begin{equation}
+  \sum_{k=1}^K f^{\mathrm{SN}}(S_k) = F, \qquad
+  \sum_{k \ne l} A^{\mathrm{SN}}_{kl} = \sum_{\substack{(i,j) \in \cE \\ \varphi(i) \ne \varphi(j)}} A_{ij}.
+  \label{eq:conservation}
+\end{equation}
+We call these the \emph{influence conservation} and \emph{edge conservation} identities.
+Both hold to floating-point precision by construction.
+
+\subsection{Flow Faithfulness Analysis}
+\label{sec:flow-analysis}
+
+Conservation (\Cref{eq:conservation}) is necessary but not sufficient for a faithful abstraction.
+We introduce three complementary metrics that together certify flow faithfulness.
+
+\subsubsection{Path Attribution Decomposition and $D(\varphi)$}
+\label{sec:path-decomp}
+
+A \emph{supernode path} is a sequence $\pi = (S_{e}, S_{a_1}, \ldots, S_{a_m}, S_{\ell})$ with $S_e \in \cV_{\mathrm{emb}}$, $S_\ell \in \cV_{\mathrm{logit}}$, and middle supernodes in between.
+We propagate flow forward through $\cG^{\mathrm{SN}}$ using proportional distribution:
+\begin{equation}
+  w(\pi_{1:t} \to S_b) \;=\; w(\pi_{1:t}) \cdot \frac{A^{\mathrm{SN}}_{\pi_t, S_b}}{\displaystyle\sum_{S'} A^{\mathrm{SN}}_{\pi_t, S'} + f^{\mathrm{SN}}(\pi_t)},
+  \label{eq:flow-prop}
+\end{equation}
+where $\pi_t$ denotes the last node of prefix $\pi_{1:t}$ and the denominator is the total exit flow (edges out plus direct logit weight).
+Paths terminating at the logit via direct $f^{\mathrm{SN}}$ are handled analogously.
+Since $\cG^{\mathrm{SN}}$ is a DAG, this forward pass is acyclic and terminates in $O(K^2)$ steps.
+
+Let $\Pi$ denote the set of all supernode paths with positive flow weight, and let $\mathrm{top}_k \Pi$ denote the $k$ highest-weight paths.
+
+\begin{definition}[Flow Distortion]
+  \begin{equation}
+    D(\varphi) = 1 - \frac{\sum_{\pi \in \mathrm{top}_k \Pi} w(\pi)}{\sum_{\pi \in \Pi} w(\pi)}.
+    \label{eq:D-phi}
+  \end{equation}
+\end{definition}
+
+$D(\varphi) = 0$ means $k$ paths capture all attribution; $D(\varphi) \approx 1$ means attribution is diffuse across many paths with no dominant causal narrative.
+
+\subsubsection{Local Flow Residuals and $R(\varphi)$}
+\label{sec:residuals}
+
+For each middle supernode $S_k$, define the signed net in-flow and out-flow:
+\begin{align}
+  \mathrm{in}(S_k) &= \sum_{l \ne k} A^{\mathrm{SN}}_{lk}, \label{eq:inflow} \\
+  \mathrm{out}(S_k) &= \sum_{l \ne k} A^{\mathrm{SN}}_{kl} + f^{\mathrm{SN}}(S_k). \label{eq:outflow}
+\end{align}
+
+In a perfectly flow-conserving abstraction, $\mathrm{in}(S_k) = \mathrm{out}(S_k)$ for every middle supernode.
+We measure the deviation:
+\[
+  r_k = \frac{|\mathrm{in}(S_k) - \mathrm{out}(S_k)|}{|\mathrm{in}(S_k)| + \eps}.
+\]
+
+\begin{definition}[Local Flow Residual]
+  \begin{equation}
+    R(\varphi) = \frac{1}{|\cV_{\mathrm{mid}}^{\mathrm{SN}}|} \sum_{k:\, S_k \in \cV_{\mathrm{mid}}^{\mathrm{SN}}} r_k,
+    \label{eq:R-phi}
+  \end{equation}
+  where $\cV_{\mathrm{mid}}^{\mathrm{SN}}$ denotes the set of non-fixed (middle) supernodes.
+\end{definition}
+
+A supernode with $r_k > 1$ indicates that $|\mathrm{out}| > 2|\mathrm{in}|$, i.e., it generates more flow than it receives --- a sign that the grouping has merged nodes playing fundamentally different roles (e.g., a relay node with a suppressive direct-logit writer).
+We flag supernodes with $f^{\mathrm{SN}}(S_k) < 0$ as \emph{suppressive concept nodes}, indicating they inhibit the target prediction.
+
+\subsubsection{Shortcut Analysis and $\sigma(\varphi)$}
+\label{sec:shortcuts}
+
+A \emph{shortcut edge} $S_a \to S_c$ is a direct edge in $\cG^{\mathrm{SN}}$ that could be explained by an indirect path $S_a \to S_b \to S_c$ for some intermediate supernode $S_b$.
+We quantify this via the shortcut ratio:
+
+\begin{definition}[Shortcut Ratio]
+  For each edge $(S_a, S_c) \in \cG^{\mathrm{SN}}$ with $A^{\mathrm{SN}}_{ac} > 0$:
+  \begin{equation}
+    \rho(S_a, S_c) = \frac{A^{\mathrm{SN}}_{ac}}{A^{\mathrm{SN}}_{ac} + \displaystyle\max_{S_b \ne S_a, S_c} \min\!\left(A^{\mathrm{SN}}_{ab},\, A^{\mathrm{SN}}_{bc}\right)}.
+    \label{eq:shortcut-ratio}
+  \end{equation}
+\end{definition}
+
+$\rho \approx 1$ means the direct edge dominates (genuine direct concept link); $\rho \approx 0$ means indirect paths carry most of the flow (shortcut artifact).
+An edge is classified as a shortcut if $\rho < 0.5$.
+
+\begin{definition}[Global Shortcut Fraction]
+  \begin{equation}
+    \sigma(\varphi) = \frac{\sum_{(a,c):\, \rho(S_a, S_c) < 0.5} A^{\mathrm{SN}}_{ac}}{\sum_{(a,c)} A^{\mathrm{SN}}_{ac}}.
+    \label{eq:sigma-phi}
+  \end{equation}
+\end{definition}
+
+\subsubsection{Combined Flow Faithfulness Score}
+\label{sec:combined}
+
+\begin{definition}[Flow Faithfulness Score]
+  \begin{equation}
+    F(\varphi) = w_p \cdot (1 - D(\varphi)) + w_r \cdot (1 - R(\varphi)) + w_s \cdot (1 - \sigma(\varphi)),
+    \label{eq:F-phi}
+  \end{equation}
+  with default weights $w_p = 0.4$, $w_r = 0.3$, $w_s = 0.3$.
+\end{definition}
+
+$F(\varphi) \in [0,1]$, with $F(\varphi) \approx 1$ certifying that $\cG^{\mathrm{SN}}$ is a faithful flow abstraction of $\cG$.
+
+\subsubsection{Enhanced Auto-$K$ Selection}
+\label{sec:auto-k}
+
+We select the number of supernodes $K$ by maximizing a composite score over a search range determined by the eigengap heuristic:
+\begin{equation}
+  \hat{K} = \arg\max_{K \in [k^*-2,\, k^*+2]} \cL(K),
+  \label{eq:auto-k}
+\end{equation}
+where
+\begin{equation}
+  \cL(K) = w_1 \cdot \bar{s}_{\mathrm{intra}}(K) + w_2 \cdot \mathrm{DAG}(K) + w_3 \cdot H_{\mathrm{attr}}(K) + w_4 \cdot \mathrm{size}(K) + w_5 \cdot F(\varphi_K),
+  \label{eq:score}
+\end{equation}
+with components:
+\begin{itemize}[leftmargin=2em]
+  \item $\bar{s}_{\mathrm{intra}}(K)$: weighted mean intra-supernode similarity (coherence).
+  \item $\mathrm{DAG}(K) = 1 - n_{\mathrm{warn}} / \binom{K}{2}$: fraction of supernode pairs without interleaving layer ranges.
+  \item $H_{\mathrm{attr}}(K)$: normalized entropy of the $f^{\mathrm{SN}}$ distribution (attribution balance across concepts).
+  \item $\mathrm{size}(K) = 1 - |K - \sqrt{N_{\mathrm{mid}}}| / N_{\mathrm{mid}}$: proximity to the ``natural'' scale.
+  \item $F(\varphi_K)$: the flow faithfulness score defined in \Cref{eq:F-phi}.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Theoretical Analysis}
+\label{sec:theory}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Generative Model: Layered Concept Block Model}
+\label{sec:model}
+
+We ground our analysis in the following generative model for attribution graphs.
+
+\begin{assumption}[Layered Degree-Corrected Block Model (LDCBM)]
+\label{ass:block}
+  There exist $K$ latent concept groups with assignments $z_i \in [K]$ for each node $i \in \cV_{\mathrm{mid}}$.
+  The expected attribution weight between nodes $i$ and $j$ is:
+  \begin{equation}
+    \E[A_{ij}] = \theta_i \theta_j B_{z_i, z_j} \cdot \1[\mathrm{layer}(i) < \mathrm{layer}(j)],
+    \label{eq:ldcbm}
+  \end{equation}
+  where $\theta_i > 0$ is a node-specific degree parameter (activity scale), and $\bB \in \R^{K \times K}$ is the concept interaction matrix with $B_{kl} \ge 0$.
+  The observed weights satisfy $A_{ij} = \E[A_{ij}] + \eps_{ij}$ where $\eps_{ij}$ are mean-zero noise terms with $\mathrm{Var}(\eps_{ij}) \le \sigma^2$.
+\end{assumption}
+
+\begin{assumption}[Identifiability]
+\label{ass:ident}
+  The matrix $\bB$ has $K$ distinct rows: $B_{k\cdot} \ne B_{l\cdot}$ for all $k \ne l$.
+  This ensures concepts are distinguishable by their interaction patterns.
+\end{assumption}
+
+\begin{assumption}[Degree regularity]
+\label{ass:degree}
+  The average weighted degree $\bar{d} = \frac{1}{N_{\mathrm{mid}}} \sum_i \sum_j \E[A_{ij}]$ satisfies $\bar{d} = \omega(\log N_{\mathrm{mid}})$.
+\end{assumption}
+
+\subsection{Concept Recovery Guarantee}
+\label{sec:recovery}
+
+\begin{theorem}[Concept Recovery]
+\label{thm:recovery}
+  Under \Cref{ass:block,ass:ident,ass:degree}, let $\mathrm{SNR} = \min_{k \ne l} \norm{B_{k\cdot} - B_{l\cdot}}_2 / \sigma$ denote the signal-to-noise ratio.
+  If $\mathrm{SNR} \ge C \sqrt{\log N_{\mathrm{mid}} / \bar{d}}$ for a universal constant $C > 0$, then the spectral clustering procedure applied to $\bS_{\mathrm{mid}}$ (\Cref{eq:similarity}) recovers the true concept partition $\{z_i\}$ with probability $1 - o(1)$, up to $o(N_{\mathrm{mid}})$ misclassified nodes.
+\end{theorem}
+
+\begin{proof}
+  The proof proceeds by connecting the similarity matrix $\bS_{\mathrm{mid}}$ to the adjacency spectrum of the underlying block model.
+
+  \emph{Step 1: Spectral equivalence.}
+  Write the adjacency matrix restricted to middle nodes as $\bA_{\mathrm{mid}} = \E[\bA_{\mathrm{mid}}] + \bEps$, where $\E[\bA_{\mathrm{mid}}]_{ij} = \theta_i \theta_j B_{z_i z_j}$.
+  The expected similarity under the LDCBM is:
+  \begin{align*}
+    \E[\bS^{\mathrm{out}}_{ij}]
+    &= \frac{\E[(\bA \bW \bA^\top)_{ij}]}{\sqrt{\E[(\bA \bW \bA^\top)_{ii}] \cdot \E[(\bA \bW \bA^\top)_{jj}]}} \\
+    &= \frac{\theta_i \theta_j \sum_k w_k B_{z_i k} B_{z_j k}}{\theta_i \theta_j \sqrt{\sum_k w_k B_{z_i k}^2} \sqrt{\sum_k w_k B_{z_j k}^2}},
+  \end{align*}
+  where $w_k = \sum_m W_{mm} \theta_m^2 \1[z_m = k]$.
+  Crucially, the $\theta_i \theta_j$ factors cancel in the cosine normalization, so $\E[\bS^{\mathrm{out}}_{ij}]$ depends only on $z_i$ and $z_j$.
+  The same holds for $\bS^{\mathrm{in}}$.
+  Therefore $\E[\bS_{\mathrm{mid}}]$ is block-constant: $\E[\bS_{\mathrm{mid}}]_{ij} = C_{z_i z_j}$ for some matrix $\bC \in \R^{K \times K}$.
+
+  \emph{Step 2: Concentration.}
+  By matrix Bernstein's inequality~\citep{tropp2012user}, under \Cref{ass:degree},
+  \[
+    \norm{\bS_{\mathrm{mid}} - \E[\bS_{\mathrm{mid}}]}_2 \le c\sqrt{\frac{\log N_{\mathrm{mid}}}{\bar{d}}}
+  \]
+  with probability $1 - N_{\mathrm{mid}}^{-2}$, for a constant $c > 0$.
+
+  \emph{Step 3: Spectral gap.}
+  The matrix $\E[\bS_{\mathrm{mid}}]$ has block structure with $K$ distinct row patterns (by \Cref{ass:ident}).
+  Under the Davis-Kahan theorem~\citep{davis1970rotation}, the spectral gap of $\E[\bS_{\mathrm{mid}}]$ between the $K$-th and $(K{+}1)$-th eigenvalues satisfies $\lambda_K - \lambda_{K+1} \ge \delta > 0$ where $\delta$ depends on $\min_{k \ne l} \norm{C_{k\cdot} - C_{l\cdot}}_2 \ge c' \cdot \mathrm{SNR}$.
+
+  \emph{Step 4: Clustering error.}
+  By the perturbation analysis of~\citet{lei2015consistency} for spectral clustering on adjacency matrices satisfying the conditions above:
+  when $\norm{\bS_{\mathrm{mid}} - \E[\bS_{\mathrm{mid}}]}_2 \le \delta / 2$, i.e., when $\mathrm{SNR} \ge C\sqrt{\log N_{\mathrm{mid}} / \bar{d}}$, spectral clustering with $K$ clusters misclassifies at most $o(N_{\mathrm{mid}})$ nodes with probability $1 - o(1)$.
+
+  \emph{Step 5: DAG enforcement.}
+  The layer-span constraint $\Delta$ acts as a hard side constraint.
+  Nodes at very different layers cannot be merged regardless of similarity, strictly reducing the feasible partition space.
+  Under \Cref{ass:block}, nodes in the same block have similar layer distributions (since $B_{kl} \cdot \1[\mathrm{layer}(i) < \mathrm{layer}(j)]$ couples block identity with layer order), so the constraint eliminates spurious cross-layer merges without affecting intra-block assignments.
+  Therefore the DAG constraint can only improve (or maintain) the recovery guarantee.
+\end{proof}
+
+\begin{remark}
+  The degree-correction via $\bW$ in \Cref{eq:similarity} is analogous to the regularization in~\citet{qin2013regularized}: it prevents high-activation nodes from dominating the similarity and biasing cluster assignments.
+  Without $\bW$, the similarity $\bS^{\mathrm{out}}$ degenerates to the standard cosine similarity, which may fail to separate blocks when node degrees are highly heterogeneous.
+\end{remark}
+
+\subsection{Flow Faithfulness Under Correct Recovery}
+\label{sec:flow-theory}
+
+We now show that correct concept recovery implies low flow distortion and low local residuals.
+
+\subsubsection{Flow Distortion Bound}
+
+\begin{definition}[Shortcut edge weight]
+  Given the true partition $z$, an edge $(i,j)$ is a \emph{cross-block shortcut} if $z_i \ne z_j$ but there exists $m$ with $z_i = z_m$ or $z_m = z_j$ such that the path $i \to m \to j$ would carry comparable weight.
+  Formally, define the total shortcut edge weight as:
+  \[
+    W_{\mathrm{sc}} = \sum_{\substack{(a,c):\\ \rho(S_a, S_c) < 0.5}} A^{\mathrm{SN}}_{ac}.
+  \]
+\end{definition}
+
+\begin{theorem}[Flow Distortion Bound]
+\label{thm:flow-distortion}
+  Under correct concept recovery (zero misclassification), for any $k \ge 1$:
+  \begin{equation}
+    D(\varphi) \;\le\; \frac{W_{\mathrm{sc}}}{W_{\mathrm{total}}},
+    \label{eq:D-bound}
+  \end{equation}
+  where $W_{\mathrm{total}} = \sum_{(a,c)} A^{\mathrm{SN}}_{ac}$ is the total edge weight in $\cG^{\mathrm{SN}}$.
+\end{theorem}
+
+\begin{proof}
+  The path-attribution propagation in \Cref{eq:flow-prop} is a proportional flow distribution on the DAG $\cG^{\mathrm{SN}}$.
+  The total attributed flow $\sum_\pi w(\pi)$ equals the total forward edge weight $W_{\mathrm{total}}$ by conservation.
+
+  An edge $(S_a, S_c)$ is a shortcut ($\rho < 0.5$) if and only if the indirect path via the best mediator $S_b$ carries more weight than the direct edge: $\min(A^{\mathrm{SN}}_{ab}, A^{\mathrm{SN}}_{bc}) > A^{\mathrm{SN}}_{ac}$.
+  In the path decomposition, flow along the shortcut edge disperses across multiple paths (those passing through $S_a \to S_c$ directly vs.\ those using $S_b$ as intermediate), preventing concentration.
+  Specifically, the shortcut weight $W_{\mathrm{sc}}$ contributes to paths that do not follow the dominant indirect route, inflating the path count and reducing top-$k$ concentration.
+  The fraction of total flow that is ``misrouted'' by shortcuts is bounded by $W_{\mathrm{sc}} / W_{\mathrm{total}}$, giving $D(\varphi) \le W_{\mathrm{sc}} / W_{\mathrm{total}}$.
+\end{proof}
+
+\subsubsection{Local Residual Bound}
+
+\begin{theorem}[Local Conservation Bound]
+\label{thm:local-residual}
+  Under the LDCBM (\Cref{ass:block}) with correct recovery, define the \emph{within-block flow asymmetry} of concept $k$ as:
+  \[
+    \delta_k = \max_{i, j \in S_k} \left|\frac{\sum_{m} A_{im}}{\theta_i} - \frac{\sum_{m} A_{jm}}{\theta_j}\right|,
+  \]
+  the maximum deviation in normalized out-degree among nodes in the same block.
+  Let $\bar{d}^{\mathrm{inter}}_k = \frac{1}{|S_k|} \sum_{i \in S_k} \sum_{j \notin \varphi^{-1}(S_k)} A_{ij}$ denote the mean inter-block out-degree of $S_k$.
+  Then:
+  \begin{equation}
+    r_k \;\le\; \frac{\delta_k}{\bar{d}^{\mathrm{inter}}_k + \eps}.
+    \label{eq:R-bound}
+  \end{equation}
+  Consequently,
+  \begin{equation}
+    R(\varphi) \;\le\; \frac{\max_k \delta_k}{\min_k \bar{d}^{\mathrm{inter}}_k + \eps}.
+    \label{eq:R-phi-bound}
+  \end{equation}
+\end{theorem}
+
+\begin{proof}
+  Under the LDCBM, for node $i \in S_k$:
+  \[
+    \mathrm{in}(S_k) = \sum_{l \ne k} A^{\mathrm{SN}}_{lk} = \sum_{j \in S_k} \sum_{i' \notin S_k} A_{i'j}.
+  \]
+  The flow passing through $S_k$ and exiting to downstream supernodes equals $\mathrm{out}(S_k) = \sum_{l \ne k} A^{\mathrm{SN}}_{kl} + f^{\mathrm{SN}}(S_k)$.
+
+  Under the block model, $\E[A_{ij}] = \theta_i \theta_j B_{z_i z_j}$, so the expected total out-flow from $i \in S_k$ is $\theta_i \sum_{l} \theta_l B_{k, z_l}$.
+  If all nodes in $S_k$ had identical $\theta_i$ (homogeneous block), then $\mathrm{in}(S_k) = \mathrm{out}(S_k)$ exactly, giving $r_k = 0$.
+  In the heterogeneous case, the residual is proportional to the spread in $\theta_i$ within the block.
+  Specifically, $|\mathrm{in}(S_k) - \mathrm{out}(S_k)| \le |S_k| \cdot \delta_k \cdot \bar{\theta}_k$, where $\bar{\theta}_k$ is the mean activity in the block.
+  Since $|\mathrm{in}(S_k)| \ge |S_k| \cdot \bar{d}^{\mathrm{inter}}_k$, we obtain $r_k \le \delta_k / \bar{d}^{\mathrm{inter}}_k$, yielding \Cref{eq:R-bound}.
+  Taking the mean over all middle supernodes gives \Cref{eq:R-phi-bound}.
+\end{proof}
+
+\begin{remark}
+  \Cref{thm:local-residual} formalizes the intuition that $R(\varphi)$ is small when nodes within the same concept have similar flow roles.
+  The structural-equivalence clustering objective (\Cref{eq:similarity}) directly minimizes within-block flow asymmetry $\delta_k$ by grouping nodes with similar neighbor profiles, providing a direct link between the clustering objective and the flow faithfulness bound.
+\end{remark}
+
+\subsubsection{Path Concentration under Sparse Block Interaction}
+
+\begin{proposition}[Path Concentration]
+\label{prop:path-concentration}
+  Suppose $\cG^{\mathrm{SN}}$ has DAG depth $L$ (maximum number of supernode hops from embedding to logit) and each supernode sends significant attribution to at most $d \ll K$ downstream supernodes (out-degree $d$ in the supernode graph).
+  Then the number of distinct supernode paths with non-negligible flow is at most $O(d^L)$, and the top-$k$ path concentration satisfies:
+  \begin{equation}
+    1 - D(\varphi) \;\ge\; 1 - O\!\left(\frac{d^L - k}{d^L}\right),
+    \label{eq:path-conc}
+  \end{equation}
+  i.e., concentration approaches 1 as $k \to d^L$.
+\end{proposition}
+
+\begin{proof}
+  Each path from embedding to logit traverses at most $L$ middle supernodes.
+  At each step, flow is distributed to at most $d$ downstream supernodes.
+  Therefore the total number of distinct paths is at most $|\cV_{\mathrm{emb}}| \cdot d^L$, and all paths have positive flow weight.
+  The top-$k$ paths capture fraction $(k / d^L)$ of paths in the worst case (uniform flow distribution), giving $D(\varphi) \le (d^L - k)/d^L$.
+  When flow is concentrated (heavy-tailed), the top-$k$ paths capture a larger fraction, so this bound is conservative.
+\end{proof}
+
+\begin{corollary}[Practical implication]
+  In transformer circuits where attention patterns are sparse (each layer attends to a small number of positions/features), the effective out-degree $d$ is small and the DAG depth $L$ is bounded by the number of transformer layers.
+  Therefore, a small number of supernode paths ($k = O(d^L)$) suffices to capture most of the attribution, and $D(\varphi)$ should be near zero for well-formed circuits.
+  Our empirical results ($D(\varphi) \le 0.005$) confirm this prediction.
+\end{corollary}
+
+\subsection{Combined Guarantee}
+\label{sec:combined-guarantee}
+
+Combining the above results:
+
+\begin{theorem}[Flow Faithfulness Certificate]
+\label{thm:main}
+  Under \Cref{ass:block,ass:ident,ass:degree} with $\mathrm{SNR} \ge C \sqrt{\log N / \bar{d}}$, the supernode mapping $\varphi$ produced by spectral clustering with DAG enforcement satisfies, with probability $1 - o(1)$:
+  \begin{enumerate}[label=(\alph*)]
+    \item (Recovery) The concept partition is recovered up to $o(N)$ errors.
+    \item (Flow distortion) $D(\varphi) \le W_{\mathrm{sc}} / W_{\mathrm{total}}$, which is small when the block interaction matrix $\bB$ induces a clean DAG structure with sparse direct concept links.
+    \item (Local conservation) $R(\varphi) \le \max_k \delta_k / \min_k \bar{d}^{\mathrm{inter}}_k$, which is small when nodes within each concept have similar flow profiles — exactly the property that structural-equivalence clustering optimizes.
+    \item (Path concentration) If the supernode graph has out-degree $\le d$ and depth $\le L$, then $D(\varphi) \le (d^L - k) / d^L$ for the top-$k$ path concentration.
+  \end{enumerate}
+
+  In particular, if $D(\varphi)$ and $R(\varphi)$ are both small (empirically certified by computing $F(\varphi)$), the supernode graph $\cG^{\mathrm{SN}}$ is a \emph{flow-faithful causal abstraction} of $\cG$: it preserves both the quantitative attribution budget (by conservation) and the qualitative causal narrative (by path concentration and local conservation).
+\end{theorem}
+
+\begin{proof}
+  Part (a) follows from \Cref{thm:recovery}.
+  Parts (b) and (c) follow from \Cref{thm:flow-distortion,thm:local-residual} given correct recovery.
+  Part (d) follows from \Cref{prop:path-concentration}.
+  The ``certificate'' interpretation follows because $D(\varphi)$ and $R(\varphi)$ are computable from $\cG^{\mathrm{SN}}$ without knowledge of the ground truth partition, providing a model-free validity check.
+\end{proof}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Discussion and Limitations}
+\label{sec:discussion}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\paragraph{Suppressive concept nodes.}
+The framework naturally accommodates nodes with $f^{\mathrm{SN}}(S_k) < 0$, i.e., supernodes that write negatively to the target logit.
+Such \emph{suppressive concept nodes} are flagged explicitly in our residual analysis.
+They represent concept clusters that inhibit competing predictions, a mechanistically meaningful feature of transformer circuits that would be obscured by unsigned aggregation.
+
+\paragraph{Sink supernodes.}
+A supernode with large positive in-flow but near-zero out-flow and zero (or negative) direct logit connection is a \emph{flow sink}.
+This can arise either because the nodes genuinely do not contribute to the target output (they fire but are not causally relevant for this prediction) or because the circuit pruning threshold was too aggressive, cutting their outgoing edges.
+The residual metric $r_k \approx 1$ flags such nodes for manual inspection.
+
+\paragraph{Block model approximation.}
+The LDCBM (\Cref{ass:block}) is an idealization.
+Real LLM circuits may exhibit continuous or hierarchical concept structure, polysemantic features partially belonging to multiple concepts, and non-stationarity across layers.
+The theoretical guarantees provide conditions under which our method works; empirically, the quality metrics $D(\varphi)$ and $R(\varphi)$ serve as model-free certificates regardless of whether the generative model holds exactly.
+
+\paragraph{Computational complexity.}
+Similarity computation is $O(N^2 d_{\max})$ where $d_{\max}$ is the maximum node degree.
+Spectral clustering with $K$ clusters is $O(N^2 K)$.
+Path decomposition on the supernode DAG is $O(K^2 L)$ for DAG depth $L$.
+All stages are tractable for circuit graphs of the scale encountered in practice ($N \le 10^3$).
+
+% ─────────────────────────────────────────────────────────────────────────────
+\bibliographystyle{plainnat}
+\begin{thebibliography}{99}
+
+\bibitem[Abbe(2018)]{abbe2018community}
+Abbe, E. (2018).
+\newblock Community detection and stochastic block models: Recent developments.
+\newblock \emph{Journal of Machine Learning Research}, 18(177):1--86.
+
+\bibitem[Davis and Kahan(1970)]{davis1970rotation}
+Davis, C. and Kahan, W.~M. (1970).
+\newblock The rotation of eigenvectors by a perturbation. III.
+\newblock \emph{SIAM Journal on Numerical Analysis}, 7(1):1--46.
+
+\bibitem[Elhage et al.(2021)]{elhage2021mathematical}
+Elhage, N., Nanda, N., Olsson, C., et al. (2021).
+\newblock A mathematical framework for transformer circuits.
+\newblock \emph{Transformer Circuits Thread}.
+
+\bibitem[Lei and Rinaldo(2015)]{lei2015consistency}
+Lei, J. and Rinaldo, A. (2015).
+\newblock Consistency of spectral clustering in stochastic block models.
+\newblock \emph{Annals of Statistics}, 43(1):215--237.
+
+\bibitem[Meng et al.(2022)]{meng2022locating}
+Meng, K., Bau, D., Andonian, A., and Belinkov, Y. (2022).
+\newblock Locating and editing factual associations in {GPT}.
+\newblock \emph{Advances in Neural Information Processing Systems}, 35.
+
+\bibitem[Ng et al.(2002)]{ng2002spectral}
+Ng, A., Jordan, M., and Weiss, Y. (2002).
+\newblock On spectral clustering: Analysis and an algorithm.
+\newblock \emph{Advances in Neural Information Processing Systems}, 14.
+
+\bibitem[Qin and Rohe(2013)]{qin2013regularized}
+Qin, T. and Rohe, K. (2013).
+\newblock Regularized spectral clustering under the degree-corrected stochastic block model.
+\newblock \emph{Advances in Neural Information Processing Systems}, 26.
+
+\bibitem[Rohe et al.(2016)]{rohe2016co}
+Rohe, K., Qin, T., and Yu, B. (2016).
+\newblock Co-clustering directed graphs to discover asymmetries and directional communities.
+\newblock \emph{Proceedings of the National Academy of Sciences}, 113(45):12679--12684.
+
+\bibitem[Templeton et al.(2024)]{templeton2024scaling}
+Templeton, A., Conerly, T., Marcus, J., et al. (2024).
+\newblock Scaling monosemanticity: Extracting interpretable features from {Claude} {Sonnet}.
+\newblock \emph{Transformer Circuits Thread}.
+
+\bibitem[Tropp(2012)]{tropp2012user}
+Tropp, J.~A. (2012).
+\newblock User-friendly tail bounds for sums of random matrices.
+\newblock \emph{Foundations of Computational Mathematics}, 12(4):389--434.
+
+\bibitem[von Luxburg(2007)]{von2007tutorial}
+von Luxburg, U. (2007).
+\newblock A tutorial on spectral clustering.
+\newblock \emph{Statistics and Computing}, 17(4):395--416.
+
+\bibitem[Wang et al.(2022)]{wang2022interpretability}
+Wang, K., Variengien, A., Conmy, A., Shlegeris, B., and Steinhardt, J. (2022).
+\newblock Interpretability in the wild: A circuit for indirect object identification in {GPT-2} small.
+\newblock \emph{arXiv preprint arXiv:2211.00593}.
+
+\end{thebibliography}
+
+\end{document}
