@@ -20,6 +20,13 @@ flow faithfulness checks (closer to sufficient):
      carries comparable flow — distinguishing genuine direct concept links
      from artifacts of coarse grouping.
 
+FIX HISTORY:
+  - sn_inf is now sourced from adj[:, logit_idx] in structure_grouping.py,
+    so inf_exit in local_flow_residuals now reflects actual logit-directed
+    flow rather than the global influence scalar. No logic changes needed
+    here — flow_analysis reads sng['sn_inf'] which is already fixed upstream.
+  - max_sn budget fix is in structure_grouping.enforce_dag.
+
 Theoretical grounding:
   D(φ) small  ⟹  a few concept-level causal paths explain most attribution
   R(φ) small  ⟹  grouping respects flow roles (nodes within a concept
@@ -101,12 +108,10 @@ def path_attribution_decomposition(
     Enumerate supernode-level paths from embedding to logit supernodes.
     Compute attributed flow along each path using proportional distribution:
 
-        flow(... → A → B) = flow(... → A) × sn_adj[A,B] / out_total[A]
+        flow(... → A → B) = flow(... → A) × sn_adj[A,B] / exit_total[A]
 
-    where out_total[A] = sum_B sn_adj[A,B] for downstream B.
-
-    For paths terminating at a middle node (not logit), the "exit" flow
-    is sn_inf[S] — the direct attribution to logit.
+    where exit_total[A] = sum_B sn_adj[A,B] + sn_inf[A]
+    (sn_inf[A] = direct edge weight to logit, fixed upstream).
 
     Returns:
         paths          : list of (path_tuple, flow_weight), sorted descending
@@ -116,27 +121,17 @@ def path_attribution_decomposition(
     """
     sn_names = sng['sn_names']
     sn_adj   = sng['sn_adj']        # K×K numpy array
-    sn_inf   = sng['sn_inf']        # K, array — direct attribution to logit
+    sn_inf   = sng['sn_inf']        # K array — direct adj weight to logit
     K        = len(sn_names)
 
     name2idx = {sn: i for i, sn in enumerate(sn_names)}
 
-    # Classify supernodes
     emb_sns   = [sn for sn in sn_names if _classify_sn(sn) == 'emb']
     logit_sns = [sn for sn in sn_names if _classify_sn(sn) == 'logit']
 
-    # Topological order for forward pass
     topo_order = _build_sn_dag_order(sn_names, final_supernodes)
 
-    # ── Forward propagation ───────────────────────────────────────────────
-    # State: dict mapping (path_prefix_tuple) → flow_amount
-    # We propagate flow from embedding supernodes forward through the DAG.
-    #
-    # To keep memory bounded, we prune paths whose flow drops below
-    # min_flow_frac of total embedding output.
-
-    # Initialise: each embedding SN starts with flow = sum of its outgoing edges
-    # (this is the total attribution it sends into the network)
+    # ── Forward propagation ───────────────────────────────────────────────────
     path_flows: dict[tuple, float] = {}
 
     for sn_e in emb_sns:
@@ -145,7 +140,7 @@ def path_attribution_decomposition(
         if out_total > 0:
             path_flows[(sn_e,)] = out_total
 
-    # Also account for direct emb → logit flow via sn_inf
+    # Direct emb → logit flow via sn_inf
     for sn_e in emb_sns:
         i = name2idx[sn_e]
         direct_inf = float(sn_inf[i])
@@ -157,7 +152,6 @@ def path_attribution_decomposition(
     total_emb_out = sum(path_flows.get((sn_e,), 0.0) for sn_e in emb_sns)
     prune_threshold = total_emb_out * min_flow_frac if total_emb_out > 0 else 0.0
 
-    # Forward pass: process supernodes in topological order
     completed_paths: dict[tuple, float] = {}
 
     for sn in topo_order:
@@ -165,25 +159,21 @@ def path_attribution_decomposition(
         kind = _classify_sn(sn)
 
         if kind == 'logit':
-            # Collect all paths ending at this logit
             for path, flow in list(path_flows.items()):
                 if path[-1] == sn:
                     completed_paths[path] = completed_paths.get(path, 0.0) + flow
             continue
 
         if kind == 'emb':
-            # Distribute embedding flow to downstream supernodes
             prefixes_here = [(p, f) for p, f in path_flows.items()
                              if p == (sn,)]
         else:
-            # Middle node: collect all paths currently ending at this node
             prefixes_here = [(p, f) for p, f in path_flows.items()
                              if p[-1] == sn and _classify_sn(p[-1]) != 'logit']
 
         if not prefixes_here:
             continue
 
-        # Compute outgoing edge weights from this SN
         out_weights = {}
         out_total   = 0.0
         for j in range(K):
@@ -194,21 +184,17 @@ def path_attribution_decomposition(
                 out_weights[sn_names[j]] = w
                 out_total += w
 
-        # Direct-to-logit attribution for this SN
+        # sn_inf[i] = direct edge weight to logit (fixed upstream)
         direct_inf = float(sn_inf[i]) if kind == 'middle' else 0.0
-
-        # Normalise: out_total + direct_inf is total "exit" from this SN
         exit_total = out_total + max(0.0, direct_inf)
 
         if exit_total <= 0:
             continue
 
         for prefix, flow in prefixes_here:
-            # Remove this prefix from active flows
             if prefix in path_flows:
                 del path_flows[prefix]
 
-            # Distribute to downstream supernodes
             for sn_next, w in out_weights.items():
                 distributed = flow * (w / exit_total)
                 if distributed < prune_threshold:
@@ -216,7 +202,6 @@ def path_attribution_decomposition(
                 new_path = prefix + (sn_next,)
                 path_flows[new_path] = path_flows.get(new_path, 0.0) + distributed
 
-            # Direct-to-logit exit
             if direct_inf > 0:
                 inf_flow = flow * (direct_inf / exit_total)
                 if inf_flow >= prune_threshold:
@@ -226,16 +211,14 @@ def path_attribution_decomposition(
                             completed_paths.get(exit_path, 0.0) + inf_flow
                         )
 
-    # Collect any remaining active paths that end at logit
+    # Collect remaining paths that end at logit
     for path, flow in path_flows.items():
         if _classify_sn(path[-1]) == 'logit':
             completed_paths[path] = completed_paths.get(path, 0.0) + flow
 
-    # Sort by flow weight
     sorted_paths = sorted(completed_paths.items(), key=lambda x: -x[1])
     total_flow   = sum(f for _, f in sorted_paths) if sorted_paths else 0.0
 
-    # Concentration curve
     concentration = {}
     cumulative    = 0.0
     for rank, (path, flow) in enumerate(sorted_paths, 1):
@@ -248,7 +231,6 @@ def path_attribution_decomposition(
     top_k_frac = concentration.get(min(top_k, len(sorted_paths)), 0.0)
     D_phi      = 1.0 - top_k_frac
 
-    # Format output
     paths_out = [
         {
             'path':   list(path),
@@ -281,9 +263,10 @@ def local_flow_residuals(
     """
     At each middle supernode S, compute:
 
-        in_flow(S)  = Σ_{S' upstream} sn_adj[S', S]       (positive edges in)
-        out_flow(S) = Σ_{S' downstream} sn_adj[S, S']     (positive edges out)
-                    + max(0, sn_inf[S])                    (direct-to-logit exit)
+        in_flow(S)  = Σ_{S' upstream} sn_adj[S', S]     (positive edges in)
+        out_flow(S) = Σ_{S' downstream} sn_adj[S, S']   (positive edges out)
+                    + max(0, sn_inf[S])                  (direct-to-logit exit)
+                      NOTE: sn_inf[S] = sum(adj[i, logit_idx]) — fixed upstream.
 
     Residual = |in_flow - out_flow| / (in_flow + ε)
 
@@ -312,36 +295,35 @@ def local_flow_residuals(
 
         i = name2idx[sn]
 
-        # In-flow: sum of positive incoming edges
         in_flow_pos  = sum(max(0.0, float(sn_adj[j, i])) for j in range(K) if j != i)
         in_flow_neg  = sum(min(0.0, float(sn_adj[j, i])) for j in range(K) if j != i)
-
-        # Out-flow: sum of positive outgoing edges
         out_flow_pos = sum(max(0.0, float(sn_adj[i, j])) for j in range(K) if j != i)
         out_flow_neg = sum(min(0.0, float(sn_adj[i, j])) for j in range(K) if j != i)
 
-        # Direct-to-logit exit
-        inf_exit = max(0.0, float(sn_inf[i]))
+        # inf_exit = direct edge weight to logit — keep sign.
+        # Positive: excitatory direct logit writer.
+        # Negative: suppressive direct logit writer (inhibits prediction).
+        inf_exit     = float(sn_inf[i])
 
-        # Total exit = outgoing edges + direct attribution
-        total_out = out_flow_pos + inf_exit
+        # Signed net flow: in - out (including negative edges and suppression)
+        in_flow_net  = in_flow_pos  + in_flow_neg
+        total_out    = out_flow_pos + out_flow_neg + inf_exit
 
-        # Residual
-        residual_abs = abs(in_flow_pos - total_out)
-        residual_rel = residual_abs / (in_flow_pos + 1e-12)
+        residual_abs = abs(in_flow_net - total_out)
+        residual_rel = residual_abs / (abs(in_flow_net) + 1e-12)
 
         per_sn[sn] = dict(
             in_flow_pos   = in_flow_pos,
             in_flow_neg   = in_flow_neg,
+            in_flow_net   = in_flow_net,
             out_flow_pos  = out_flow_pos,
             out_flow_neg  = out_flow_neg,
-            inf_exit      = inf_exit,
-            total_out     = total_out,
+            inf_exit      = inf_exit,           # signed: neg = suppressive
+            total_out     = total_out,          # signed net exit
             residual_abs  = residual_abs,
             residual_rel  = residual_rel,
-            # Sign: positive means more comes in than leaves (attribution "absorbed")
-            # Negative means more leaves than enters (attribution "created")
-            balance       = in_flow_pos - total_out,
+            balance       = in_flow_net - total_out,
+            is_suppressive = inf_exit < 0,
         )
         residuals.append(residual_rel)
 
@@ -371,30 +353,17 @@ def shortcut_analysis(
         shortcut_ratio(A, C) =
             sn_adj[A,C] / (sn_adj[A,C] + max_B min(sn_adj[A,B], sn_adj[B,C]))
 
-    where B ranges over all intermediate supernodes.
-
     Interpretation:
         ratio ≈ 1.0  →  direct edge dominates, genuine direct concept link
         ratio ≈ 0.0  →  indirect path dominates, edge is a shortcut artifact
-
-    Also computes:
-        best_mediator(A, C) = argmax_B min(sn_adj[A,B], sn_adj[B,C])
-        mediation_strength  = max_B min(sn_adj[A,B], sn_adj[B,C])
-
-    Returns:
-        edges        : list of edge dicts sorted by weight
-        n_shortcuts  : count of edges with ratio < 0.5
-        n_direct     : count of edges with ratio >= 0.5
-        global_shortcut_frac : fraction of total edge weight carried by shortcuts
     """
     sn_names = sng['sn_names']
     sn_adj   = sng['sn_adj']
     K        = len(sn_names)
-    name2idx = {sn: i for i, sn in enumerate(sn_names)}
 
     edges = []
-    total_weight      = 0.0
-    shortcut_weight   = 0.0
+    total_weight    = 0.0
+    shortcut_weight = 0.0
 
     for i in range(K):
         for j in range(K):
@@ -404,7 +373,6 @@ def shortcut_analysis(
             if w_direct < min_edge_weight:
                 continue
 
-            # Find best mediator B for path A → B → C
             best_mediation = 0.0
             best_mediator  = None
 
@@ -419,7 +387,6 @@ def shortcut_analysis(
                         best_mediation = mediation
                         best_mediator  = sn_names[b]
 
-            # Shortcut ratio
             ratio = w_direct / (w_direct + best_mediation + 1e-12)
 
             is_shortcut = ratio < 0.5
@@ -428,13 +395,13 @@ def shortcut_analysis(
                 shortcut_weight += w_direct
 
             edges.append(dict(
-                src               = sn_names[i],
-                tgt               = sn_names[j],
-                weight            = w_direct,
-                shortcut_ratio    = ratio,
-                is_shortcut       = is_shortcut,
-                best_mediator     = best_mediator,
-                mediation_strength= best_mediation,
+                src                = sn_names[i],
+                tgt                = sn_names[j],
+                weight             = w_direct,
+                shortcut_ratio     = ratio,
+                is_shortcut        = is_shortcut,
+                best_mediator      = best_mediator,
+                mediation_strength = best_mediation,
             ))
 
     edges.sort(key=lambda e: -e['weight'])
@@ -468,11 +435,8 @@ def flow_faithfulness_score(
 
     Components:
         path_score     = top-k concentration (1 - D_phi)
-                         "how much of the story is told by a few paths"
         residual_score = 1 - R_phi
-                         "how well flow is conserved at each concept"
         shortcut_score = 1 - global_shortcut_frac
-                         "how few edges are shortcut artifacts"
 
     F(φ) = weighted sum.  F ≈ 1 means the supernode graph is a faithful
     flow abstraction of the original circuit.
@@ -490,7 +454,6 @@ def flow_faithfulness_score(
         path_score     = path_score,
         residual_score = residual_score,
         shortcut_score = shortcut_score,
-        # Pass through key metrics
         D_phi          = path_result['D_phi'],
         R_phi          = residual_result['R_phi'],
         R_phi_max      = residual_result['R_phi_max'],
@@ -511,10 +474,7 @@ def flow_faithfulness_report(
     final_supernodes: dict,
     top_k: int = 10,
 ) -> dict:
-    """
-    Run all three analyses and produce a combined report.
-    Returns all results plus the combined F(φ) score.
-    """
+    """Run all three analyses and produce a combined report."""
     path_result     = path_attribution_decomposition(sng, final_supernodes, top_k=top_k)
     residual_result = local_flow_residuals(sng, final_supernodes)
     shortcut_result = shortcut_analysis(sng, final_supernodes)
@@ -562,7 +522,7 @@ def print_flow_report(report: dict) -> None:
         verdict = '[POOR] Flow structure not well preserved — grouping may be too coarse.'
     print(f'  {verdict}')
 
-    # ── Path decomposition ────────────────────────────────────────────────
+    # ── Path decomposition ────────────────────────────────────────────────────
     pd = report['path_decomposition']
     print(f'\n{SEP}')
     print('  PATH ATTRIBUTION DECOMPOSITION')
@@ -580,17 +540,15 @@ def print_flow_report(report: dict) -> None:
         print(f'  {rank:>4}  {p["flow"]:>10.6f}  {p["frac"]*100:>6.1f}%  '
               f'{p["length"]:>3}  {path_str}')
 
-    # ── Concentration curve ───────────────────────────────────────────────
     print(f'\n  Concentration curve:')
-    for k_str, frac in sorted(pd['concentration'].items(),
-                               key=lambda x: int(x[0])):
+    for k_str, frac in sorted(pd['concentration'].items(), key=lambda x: int(x[0])):
         k = int(k_str)
         bar = '█' * int(frac * 40)
         print(f'    top-{k:>2}: {frac*100:>6.1f}%  {bar}')
         if k >= 15:
             break
 
-    # ── Local flow residuals ──────────────────────────────────────────────
+    # ── Local flow residuals ──────────────────────────────────────────────────
     lr = report['local_residuals']
     print(f'\n{SEP}')
     print('  LOCAL FLOW RESIDUALS')
@@ -598,19 +556,21 @@ def print_flow_report(report: dict) -> None:
     print(f'  R(φ) = {lr["R_phi"]:.4f}  (mean relative residual)')
     print(f'  R(φ)_max = {lr["R_phi_max"]:.4f}  (worst-case)')
     print(f'  Middle supernodes: {lr["n_middle"]}')
+    print(f'  [NOTE] inf_exit = sum(adj[i, logit_idx]) — signed: neg = suppressive')
     print()
-    print(f'  {"Supernode":<22}  {"in_flow":>9}  {"out_flow":>9}  {"inf_exit":>9}'
+    print(f'  {"Supernode":<22}  {"in_net":>9}  {"out_net":>9}  {"inf_exit":>9}'
           f'  {"residual":>9}  {"balance":>9}  Status')
-    print(f'  {"-"*85}')
+    print(f'  {"-"*90}')
 
-    for sn, st in sorted(lr['per_sn'].items(),
-                          key=lambda x: -x[1]['residual_rel']):
-        status = '[OK]' if st['residual_rel'] < 0.3 else '[WARN]' if st['residual_rel'] < 0.6 else '[HIGH]'
-        print(f'  {sn:<22}  {st["in_flow_pos"]:>9.4f}  {st["out_flow_pos"]:>9.4f}'
-              f'  {st["inf_exit"]:>9.4f}  {st["residual_rel"]:>9.4f}'
-              f'  {st["balance"]:>+9.4f}  {status}')
+    for sn, st in sorted(lr['per_sn'].items(), key=lambda x: -x[1]['residual_rel']):
+        status = ('[OK]'   if st['residual_rel'] < 0.3 else
+                  '[WARN]' if st['residual_rel'] < 0.6 else '[HIGH]')
+        flag   = '  [SUPPRESSIVE]' if st.get('is_suppressive') else ''
+        print(f'  {sn:<22}  {st["in_flow_net"]:>+9.4f}  {st["total_out"]:>+9.4f}'
+              f'  {st["inf_exit"]:>+9.4f}  {st["residual_rel"]:>9.4f}'
+              f'  {st["balance"]:>+9.4f}  {status}{flag}')
 
-    # ── Shortcut analysis ─────────────────────────────────────────────────
+    # ── Shortcut analysis ─────────────────────────────────────────────────────
     sa = report['shortcut_analysis']
     print(f'\n{SEP}')
     print('  SHORTCUT ANALYSIS')
@@ -622,7 +582,6 @@ def print_flow_report(report: dict) -> None:
           f' of total edge weight')
     print()
 
-    # Top edges by weight
     top_edges = sa['edges'][:15]
     print(f'  {"Source":<20}  {"Target":<20}  {"Weight":>9}  '
           f'{"Ratio":>7}  {"Type":>10}  Mediator')
@@ -654,26 +613,17 @@ def enhanced_score_k(
     """
     Enhanced scoring that incorporates flow faithfulness.
 
-    The original score_k components are retained with reduced weights,
-    and a new flow_faithfulness component (F_phi) is added:
-
         total = w_intra * intra_sim
               + w_dag   * dag_safety
               + w_attr  * attr_balance
               + w_size  * size_score
               + w_flow  * F_phi
-
-    F_phi itself combines path concentration, local residuals, and
-    shortcut ratio — so the final score covers both clustering quality
-    AND flow preservation.
     """
     from auto_grouping import score_k as base_score_k
 
-    # Get base scores
     base = base_score_k(final_supernodes, data, S, target_n_middle,
                         w_intra=1.0, w_dag=1.0, w_attr=1.0, w_size=1.0)
 
-    # Build supernode graph and run flow analysis
     sng    = build_supernode_graph(final_supernodes, data)
     report = flow_faithfulness_report(sng, final_supernodes, top_k=10)
 
@@ -725,10 +675,6 @@ def find_best_k_with_flow(
     """
     Like find_best_k from auto_grouping, but uses enhanced_score_k
     that incorporates flow faithfulness.
-
-    Returns:
-        best_k  : int
-        results : dict[k → enhanced_score_dict]
     """
     from auto_grouping import eigengap_analysis
 
@@ -740,7 +686,6 @@ def find_best_k_with_flow(
         print('  Too few middle nodes for auto-k.')
         return 2, {}
 
-    # Eigengap for search range
     eg = eigengap_analysis(S, kept_ids, max_k=min(20, N_middle - 1))
     print(f'  Eigengap suggests k = {eg["eigengap_k"]}')
 
@@ -778,7 +723,9 @@ def find_best_k_with_flow(
         )
         results[k] = sc
 
-        print(f'  {k:>3}  {sc["n_middle"]:>4}  {sc["intra_sim"]:>6.4f}'
+        n_total  = len(final_sn)
+        n_middle = sc['n_middle']
+        print(f'  {k:>3}  {n_middle:>2}+{n_total-n_middle:<2}  {sc["intra_sim"]:>6.4f}'
               f'  {sc["dag_safety"]:>5.3f}  {sc["attr_balance"]:>5.3f}'
               f'  {sc["size_score"]:>5.3f}  {sc["F_phi"]:>6.4f}'
               f'  {sc["D_phi"]:>6.4f}  {sc["R_phi"]:>6.4f}'
@@ -790,11 +737,16 @@ def find_best_k_with_flow(
     best_k = max(results, key=lambda k: results[k]['total'])
     best   = results[best_k]
 
+    n_total  = len(results[best_k]['final_supernodes'])
+    n_middle = best['n_middle']
     print(f'\n  Best k = {best_k}  (total = {best["total"]:.4f})')
+    print(f'    Supernodes: {n_middle} middle + {n_total - n_middle} fixed = {n_total} total')
     print(f'    F(φ) = {best["F_phi"]:.4f}  '
           f'(path={best["path_score"]:.3f}, '
           f'residual={best["residual_score"]:.3f}, '
           f'shortcut={best["shortcut_score"]:.3f})')
+    print(f'    inf_conservation  = {best["inf_conservation"]:.6f}')
+    print(f'    edge_conservation = {best["edge_conservation"]:.6f}')
 
     return best_k, results
 
@@ -845,7 +797,6 @@ def main():
     parser.add_argument('--max-sn',         type=int,   default=None)
     args = parser.parse_args()
 
-    # ── Load ──────────────────────────────────────────────────────────────
     if args.synthetic:
         print('Using synthetic snapshot...')
         raw = build_synthetic_snapshot()
@@ -857,12 +808,12 @@ def main():
 
     data = prepare_graph_data(raw)
     print(f'  Nodes: {len(data["kept_ids"])}')
+    print(f'  logit_idx: {data["logit_idx"]}')
+    print(f'  total adj[:,logit] = {data["adj"][:, data["logit_idx"]].sum():.4f}')
 
-    # ── Similarity ────────────────────────────────────────────────────────
     print('Computing similarity matrix...')
     S = compute_similarity(data, alpha=args.alpha, beta=args.beta)
 
-    # ── Auto-k with flow scoring ──────────────────────────────────────────
     if args.auto_k:
         best_k, results = find_best_k_with_flow(
             data, S,
@@ -873,14 +824,46 @@ def main():
         if best_k in results and 'flow_report' in results[best_k]:
             print_flow_report(results[best_k]['flow_report'])
             save_flow_report(results[best_k]['flow_report'], args.out_json)
+            # Save the supernode map that produced this report
+            best_sn = results[best_k]['final_supernodes']
+            # Build and save sn_flow JSON for visualizer
+            sng = build_supernode_graph(best_sn, data)
+            sn_flow_path = args.out_json.replace('.json', '_sn_flow.json')
+            with open(sn_flow_path, 'w') as f:
+                import json as _json
+                _json.dump({
+                    'sn_names': sng['sn_names'],
+                    'sn_adj': sng['sn_adj'].tolist(),
+                    'F_sn': sng['F_sn'].tolist(),
+                    'sn_reach': sng['sn_reach'].tolist(),
+                    'sn_act_norm': sng['sn_act_norm'].tolist(),
+                    'sn_inf': sng['sn_inf'].tolist(),
+                    'preservation': sng['preservation'],
+                    'orig_reach_total': sng['orig_reach_total'],
+                    'surr_reach_total': sng['surr_reach_total'],
+                    'inf_conservation': sng['inf_conservation'],
+                    'edge_conservation': sng['edge_conservation'],
+                    'dominant_paths': sng['dominant_paths'],
+                    'bottleneck_sns': sng['bottleneck_sns'],
+                }, f, indent=2)
+            print(f'SN flow JSON saved → {sn_flow_path}')
+            sn_map_path = args.out_json.replace('.json', '_supernode_map.json')
+            with open(sn_map_path, 'w') as f:
+                import json as _json
+                _json.dump(best_sn, f, indent=2)
+            n_mid = sum(1 for s in best_sn if 'EMB' not in s and 'LOGIT' not in s)
+            n_fix = len(best_sn) - n_mid
+            print(f'Supernode map saved → {sn_map_path}  ({n_mid} middle + {n_fix} fixed)')
         return
 
-    # ── Single-k analysis ─────────────────────────────────────────────────
     print(f'\nClustering with target-k={args.target_k}...')
     final_sn = cluster_with_target_k(
         data, S, target_k=args.target_k,
         max_layer_span=args.max_layer_span, max_sn=args.max_sn)
-    print(f'  Supernodes: {len(final_sn)}')
+
+    n_middle = sum(1 for sn in final_sn if 'EMB' not in sn and 'LOGIT' not in sn)
+    n_total  = len(final_sn)
+    print(f'  Supernodes: {n_middle} middle + {n_total - n_middle} fixed = {n_total} total')
 
     print('\nBuilding supernode graph...')
     sng = build_supernode_graph(final_sn, data)

@@ -11,16 +11,22 @@ Score components (all normalised to [0, 1]):
   intra_sim    : mean intra-cluster cosine similarity (coherence)
   dag_safety   : 1 - fraction of SN pairs with cycle warnings
   attr_balance : entropy of sn_inf distribution / log(n_sn)
-                 "does attribution spread evenly across concepts?"
   size_score   : proximity of n_supernodes to sqrt(N_middle_nodes)
 
+FIX HISTORY:
+  - middle_sn filter uses 'EMB' not in sn and 'LOGIT' not in sn
+    (was checking sn not in ('SN_EMB', 'SN_LOGIT') which broke when
+    EMB/LOGIT nodes each got per-node names like SN_EMB_E_26865_9).
+  - attr_balance uses sn_inf = sum(adj[i, logit_idx]) — actual logit
+    edge weights, not attr['influence'] (fixed upstream in
+    structure_grouping.prepare_graph_data).
+
 Usage (standalone):
-  python auto_grouping.py --file subgraph/austin_clt.pt --max-layer-span 4
-  python auto_grouping.py --file subgraph/austin_clt.pt --run-best
+  python auto_grouping.py --file subgraph/austin_plt.pt --max-layer-span 4
+  python auto_grouping.py --file subgraph/austin_plt.pt --run-best
 
 Usage (as library):
-  from auto_grouping import find_best_k
-  best_k, results = find_best_k(data, S, max_layer_span=4)
+  from auto_grouping import find_best_k, eigengap_analysis, score_k
 """
 
 import argparse
@@ -42,8 +48,6 @@ from structure_grouping import (
     parse_layer,
     _is_fixed,
 )
-# Note: score_k calls build_supernode_graph which handles edge_conservation
-# with the corrected <= mask. No local edge computation needed here.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -87,7 +91,6 @@ def eigengap_analysis(S: torch.Tensor,
     if search_end < 2:
         eigengap_k = 2
     else:
-        # skip gap[0] (λ_0→λ_1 is always large); gap at index i → k = i+1
         gap_slice  = gaps[1:search_end]
         eigengap_k = int(np.argmax(gap_slice)) + 2
 
@@ -122,52 +125,50 @@ def score_k(final_supernodes: dict,
     Components:
       intra_sim    : weighted mean intra-cluster similarity
       dag_safety   : 1 - (n_cycle_warnings / n_SN_pairs)
-      attr_balance : entropy of sn_inf distribution (how evenly attribution
-                     spreads across concepts) — grounded, no flow propagation
+      attr_balance : entropy of sn_inf distribution
+                     sn_inf = sum(adj[i, logit_idx]) — actual logit flow
       size_score   : 1 - |n_middle_SN - sqrt(N_middle)| / N_middle
-
-    All components normalised to [0, 1].
     """
     stats        = evaluate_grouping(final_supernodes, data, S)
     dag_warnings = check_dag_safety(final_supernodes)
     sng          = build_supernode_graph(final_supernodes, data)
 
-    # middle SNs only (EMB/LOGIT are fixed, not clustered)
+    # FIX: substring check for per-node EMB/LOGIT names
+    # (e.g. SN_EMB_E_26865_9, SN_LOGIT_27_22605_10)
     middle_sn = {sn: st for sn, st in stats.items()
-                 if sn not in ('SN_EMB', 'SN_LOGIT')}
+                 if 'EMB' not in sn and 'LOGIT' not in sn}
     n_middle = len(middle_sn)
 
     if n_middle == 0:
         return dict(total=0.0, intra_sim=0.0, dag_safety=0.0,
                     attr_balance=0.0, size_score=0.0, n_middle=0,
-                    n_warnings=0, details={})
+                    n_warnings=0, inf_conservation=0.0,
+                    edge_conservation=0.0, details={})
 
     # ── 1. Intra-cluster similarity ───────────────────────────────────────────
-    sizes = [st['n'] for st in middle_sn.values()]
+    sizes   = [st['n'] for st in middle_sn.values()]
     total_n = sum(sizes) or 1
     intra_raw = sum(
         st['intra_sim_mean'] * st['n'] / total_n
         for st in middle_sn.values()
     )
-    # normalise against global mean so scores are comparable across graphs
     middle_idx  = [i for i, nid in enumerate(data['kept_ids']) if not _is_fixed(nid)]
     S_mid_upper = S[middle_idx][:, middle_idx].numpy()
     upper_vals  = S_mid_upper[np.triu_indices(len(middle_idx), k=1)]
     global_mean = float(upper_vals.mean()) + 1e-8
     intra_sim   = min(1.0, intra_raw / (global_mean * 2))
 
-    # cohesion penalty: clusters with very low intra_sim_min are bad
-    weak = sum(1 for st in middle_sn.values() if st['intra_sim_min'] < 0.3)
+    # Cohesion penalty: clusters with very low intra_sim_min are bad
+    weak      = sum(1 for st in middle_sn.values() if st['intra_sim_min'] < 0.3)
     intra_sim = intra_sim * (1.0 - 0.5 * weak / max(n_middle, 1))
 
     # ── 2. DAG safety ─────────────────────────────────────────────────────────
     n_pairs    = n_middle * (n_middle - 1) / 2
     dag_safety = 1.0 - len(dag_warnings) / max(n_pairs, 1)
 
-    # ── 3. Attribution balance (replaces flow propagation) ────────────────────
-    # sn_inf is grounded: sum of inf_to_logit per supernode.
-    # Entropy of this distribution measures how evenly attribution
-    # is spread across concepts (high entropy = well-distributed).
+    # ── 3. Attribution balance ────────────────────────────────────────────────
+    # sn_inf = sum(adj[i, logit_idx]) — actual direct logit-edge flow per SN.
+    # Entropy of this distribution: high entropy = attribution spread evenly.
     sn_names = sng['sn_names']
     sn_inf   = sng['sn_inf']   # np.ndarray aligned with sn_names
 
@@ -198,18 +199,17 @@ def score_k(final_supernodes: dict,
              + w_size * size_score)
 
     return dict(
-        total        = total,
-        intra_sim    = intra_sim,
-        dag_safety   = dag_safety,
-        flow_balance = attr_balance,   # keep key name for backward compat
-        attr_balance = attr_balance,
-        size_score   = size_score,
-        n_middle     = n_middle,
-        n_warnings   = len(dag_warnings),
-        # validation pass-through
+        total             = total,
+        intra_sim         = intra_sim,
+        dag_safety        = dag_safety,
+        flow_balance      = attr_balance,   # backward compat key
+        attr_balance      = attr_balance,
+        size_score        = size_score,
+        n_middle          = n_middle,
+        n_warnings        = len(dag_warnings),
         inf_conservation  = float(sng['inf_conservation']),
         edge_conservation = float(sng['edge_conservation']),
-        details      = {
+        details           = {
             sn: dict(intra_sim=st['intra_sim_mean'],
                      n=st['n'],
                      layers=f"L{st['layer_lo']}-{st['layer_hi']}")
@@ -227,7 +227,8 @@ def find_best_k(data: dict,
                 max_layer_span: int = 4,
                 k_min_override: int = None,
                 k_max_override: int = None,
-                weights: dict = None, max_sn=None) -> tuple:
+                weights: dict = None,
+                max_sn: int = None) -> tuple:
     """
     Full auto-k pipeline:
       1. Eigengap heuristic → search range
@@ -266,15 +267,17 @@ def find_best_k(data: dict,
 
     # ── Step 2: Sweep ─────────────────────────────────────────────────────────
     print(f'\n── Step 2: Scoring k = {k_min}..{k_max} ──')
-    print(f'  {"k":>3}  {"n_sn":>4}  {"intra":>6}  {"dag":>5}  '
-          f'{"attr_bal":>8}  {"size":>5}  {"TOTAL":>6}  {"warns":>5}')
-    print(f'  {"─"*52}')
+    print(f'  {"k":>3}  {"n_mid":>5}  {"intra":>6}  {"dag":>5}  '
+          f'{"attr_bal":>8}  {"size":>5}  {"TOTAL":>6}  {"warns":>5}  '
+          f'{"inf_con":>7}  {"edg_con":>7}')
+    print(f'  {"─"*68}')
 
     results = {}
     for k in range(k_min, k_max + 1):
         try:
             final_sn = cluster_with_target_k(
-                data, S, target_k=k, max_layer_span=max_layer_span, max_sn = max_sn)
+                data, S, target_k=k,
+                max_layer_span=max_layer_span, max_sn=max_sn)
         except Exception as e:
             print(f'  k={k} failed: {e}')
             continue
@@ -284,35 +287,41 @@ def find_best_k(data: dict,
             target_n_middle = N_middle,
             w_intra = w.get('w_intra', 0.30),
             w_dag   = w.get('w_dag',   0.25),
-            w_attr  = w.get('w_flow',  0.25),   # w_flow key kept for CLI compat
+            w_attr  = w.get('w_flow',  0.25),
             w_size  = w.get('w_size',  0.20),
         )
         sc['final_supernodes'] = final_sn
         results[k] = sc
 
-        print(f'  {k:>3}  {sc["n_middle"]:>4}  {sc["intra_sim"]:>6.4f}  '
+        n_total  = len(final_sn)
+        n_middle = sc['n_middle']
+        print(f'  {k:>3}  {n_middle:>2}+{n_total-n_middle:<2}  {sc["intra_sim"]:>6.4f}  '
               f'{sc["dag_safety"]:>5.4f}  {sc["attr_balance"]:>8.4f}  '
               f'{sc["size_score"]:>5.4f}  {sc["total"]:>6.4f}  '
-              f'{sc["n_warnings"]:>5}')
+              f'{sc["n_warnings"]:>5}  '
+              f'{sc["inf_conservation"]:>7.4f}  {sc["edge_conservation"]:>7.4f}')
 
     if not results:
         print('  All k values failed. Falling back to eigengap suggestion.')
         return eg['eigengap_k'], {}
 
     # ── Step 3: Best k ────────────────────────────────────────────────────────
-    best_k    = max(results, key=lambda k: results[k]['total'])
-    best      = results[best_k]
+    best_k = max(results, key=lambda k: results[k]['total'])
+    best   = results[best_k]
+
+    n_total  = len(best['final_supernodes'])
+    n_middle = best['n_middle']
 
     print(f'\n── Result ──')
     print(f'  Best k = {best_k}  (total score = {best["total"]:.4f})')
-    print(f'    intra_sim    = {best["intra_sim"]:.4f}  (within-cluster coherence)')
-    print(f'    dag_safety   = {best["dag_safety"]:.4f}  (cycle-free fraction)')
-    print(f'    attr_balance = {best["attr_balance"]:.4f}  (entropy of attribution distribution)')
-    print(f'    size_score   = {best["size_score"]:.4f}  (proximity to sqrt(N)={int(np.sqrt(N_middle))})')
-    print(f'    n_middle supernodes after DAG enforcement = {best["n_middle"]}')
-    print(f'    DAG cycle warnings = {best["n_warnings"]}')
-    print(f'    inf_conservation  = {best["inf_conservation"]:.6f}  (should be ~1.000)')
-    print(f'    edge_conservation = {best["edge_conservation"]:.6f}  (should be ~1.000)')
+    print(f'    Supernodes: {n_middle} middle + {n_total - n_middle} fixed = {n_total} total')
+    print(f'    intra_sim    = {best["intra_sim"]:.4f}')
+    print(f'    dag_safety   = {best["dag_safety"]:.4f}')
+    print(f'    attr_balance = {best["attr_balance"]:.4f}')
+    print(f'    size_score   = {best["size_score"]:.4f}')
+    print(f'    n_warnings   = {best["n_warnings"]}')
+    print(f'    inf_conservation  = {best["inf_conservation"]:.6f}')
+    print(f'    edge_conservation = {best["edge_conservation"]:.6f}')
 
     return best_k, results
 
@@ -350,7 +359,7 @@ def plot_auto_k(eigengap_result: dict, results: dict, best_k: int,
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    # ── Left: eigenvalue gaps
+    # ── Left: eigenvalue gaps ─────────────────────────────────────────────────
     ax    = axes[0]
     gaps  = eigengap_result['gaps']
     x_gap = list(range(2, 2 + len(gaps)))
@@ -366,7 +375,7 @@ def plot_auto_k(eigengap_result: dict, results: dict, best_k: int,
     ax.set_title('Eigengap Heuristic', fontsize=11, fontweight='bold')
     ax.legend(fontsize=8)
 
-    # ── Right: composite scores with stacked components
+    # ── Right: composite scores ───────────────────────────────────────────────
     ax     = axes[1]
     ks     = sorted(results.keys())
     colors = ['#f5a623' if k == best_k else '#3d8eff' for k in ks]
@@ -416,32 +425,28 @@ def main():
     parser.add_argument('--k-max',          type=int,   default=None)
     parser.add_argument('--w-intra',        type=float, default=0.30)
     parser.add_argument('--w-dag',          type=float, default=0.25)
-    parser.add_argument('--w-flow',         type=float, default=0.25,
-                        help='Weight for attribution balance (was flow balance)')
+    parser.add_argument('--w-flow',         type=float, default=0.25)
     parser.add_argument('--w-size',         type=float, default=0.20)
+    parser.add_argument('--max-sn',         type=int,   default=None)
     parser.add_argument('--out-json',       type=str,   default='auto_k_results.json')
     parser.add_argument('--out-plot',       type=str,   default='auto_k_plot.png')
     parser.add_argument('--run-best',       action='store_true',
                         help='Run structure_grouping with best k and save all outputs')
-    parser.add_argument('--max-sn', type=int, default=None,
-                        help='Hard cap on middle supernode count after DAG enforcement')
     args = parser.parse_args()
 
-    # ── Load ──────────────────────────────────────────────────────────────────
     print(f'Loading {args.file}...')
     raw  = load_snapshot(args.file)
     data = prepare_graph_data(raw)
     print(f'  Nodes: {len(data["kept_ids"])}')
+    print(f'  logit_idx: {data["logit_idx"]}')
+    print(f'  total adj[:,logit] = {data["adj"][:, data["logit_idx"]].sum():.4f}')
 
-    # ── Similarity ────────────────────────────────────────────────────────────
     print('Computing similarity matrix...')
     S = compute_similarity(data, alpha=args.alpha, beta=args.beta)
     print(f'  S shape: {S.shape}')
 
-    # ── Eigengap (for plot only — find_best_k recomputes internally) ──────────
     eg = eigengap_analysis(S, data['kept_ids'])
 
-    # ── Search ────────────────────────────────────────────────────────────────
     weights = dict(w_intra=args.w_intra, w_dag=args.w_dag,
                    w_flow=args.w_flow,   w_size=args.w_size)
 
@@ -451,43 +456,36 @@ def main():
         k_min_override = args.k_min,
         k_max_override = args.k_max,
         weights        = weights,
-        max_sn = args.max_sn,
+        max_sn         = args.max_sn,
     )
 
-    # ── Save sweep ────────────────────────────────────────────────────────────
     if results:
         save_results(results, best_k, args.out_json)
         plot_auto_k(eg, results, best_k, args.out_plot)
 
-    # ── Optionally run the full pipeline with best k ──────────────────────────
     if args.run_best and best_k in results:
         print(f'\n── Running structure_grouping with k={best_k} ──')
         final_sn = results[best_k]['final_supernodes']
 
-        # Save supernode map
         with open('supernode_map.json', 'w') as f:
             json.dump(final_sn, f, indent=2)
         print('Supernode map saved → supernode_map.json')
 
-        # Build supernode graph (grounded quantities)
         dag_warnings = check_dag_safety(final_sn)
         stats        = evaluate_grouping(final_sn, data, S)
         sng          = build_supernode_graph(final_sn, data)
-
-        # Print report
         print_report(final_sn, stats, sng, dag_warnings)
 
-        # Save SN flow JSON (keys match visualiser expectations)
         sn_flow_out = 'supernode_map_sn_flow.json'
         with open(sn_flow_out, 'w') as f:
             json.dump({
                 'sn_names'         : sng['sn_names'],
                 'sn_adj'           : sng['sn_adj'].tolist(),
-                'F_sn'             : sng['F_sn'].tolist(),          # = sn_adj
-                'sn_reach'         : sng['sn_reach'].tolist(),      # = sn_inf
+                'F_sn'             : sng['F_sn'].tolist(),
+                'sn_reach'         : sng['sn_reach'].tolist(),
                 'sn_act_norm'      : sng['sn_act_norm'].tolist(),
                 'sn_inf'           : sng['sn_inf'].tolist(),
-                'preservation'     : sng['preservation'],           # = inf_conservation
+                'preservation'     : sng['preservation'],
                 'orig_reach_total' : sng['orig_reach_total'],
                 'surr_reach_total' : sng['surr_reach_total'],
                 'inf_conservation' : sng['inf_conservation'],
