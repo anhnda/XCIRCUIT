@@ -18,6 +18,8 @@ python visualize_circuit_sp_rep.py \
 
 open circuit_sp_rep.html
 
+python flow_analysis.py --file subgraph/austin_plt.pt --auto-k  --k-min 3 --k-max 10 \
+    --alpha 0.7 --beta 0.3  --max-sn 7
 
 touch structure_grouping.py  # force reload
 python auto_grouping.py --file subgraph/austin_plt.pt \
