@@ -227,7 +227,7 @@ def find_best_k(data: dict,
                 max_layer_span: int = 4,
                 k_min_override: int = None,
                 k_max_override: int = None,
-                weights: dict = None) -> tuple:
+                weights: dict = None, max_sn=None) -> tuple:
     """
     Full auto-k pipeline:
       1. Eigengap heuristic → search range
@@ -274,7 +274,7 @@ def find_best_k(data: dict,
     for k in range(k_min, k_max + 1):
         try:
             final_sn = cluster_with_target_k(
-                data, S, target_k=k, max_layer_span=max_layer_span)
+                data, S, target_k=k, max_layer_span=max_layer_span, max_sn = max_sn)
         except Exception as e:
             print(f'  k={k} failed: {e}')
             continue
@@ -423,6 +423,8 @@ def main():
     parser.add_argument('--out-plot',       type=str,   default='auto_k_plot.png')
     parser.add_argument('--run-best',       action='store_true',
                         help='Run structure_grouping with best k and save all outputs')
+    parser.add_argument('--max-sn', type=int, default=None,
+                        help='Hard cap on middle supernode count after DAG enforcement')
     args = parser.parse_args()
 
     # ── Load ──────────────────────────────────────────────────────────────────
@@ -449,6 +451,7 @@ def main():
         k_min_override = args.k_min,
         k_max_override = args.k_max,
         weights        = weights,
+        max_sn = args.max_sn,
     )
 
     # ── Save sweep ────────────────────────────────────────────────────────────

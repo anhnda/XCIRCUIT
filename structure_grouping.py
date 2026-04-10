@@ -180,7 +180,7 @@ def cluster_middle_nodes(data: dict,
 def cluster_with_target_k(data: dict,
                           S: torch.Tensor,
                           target_k: int = 7,
-                          max_layer_span: int = 4) -> dict:
+                          max_layer_span: int = 4, max_sn: int = None) -> dict:
     from sklearn.cluster import SpectralClustering
 
     kept_ids   = data['kept_ids']
@@ -232,7 +232,7 @@ def cluster_with_target_k(data: dict,
             raw_clusters[nearest].append(nid)
 
     print(f'  Spectral clusters (before DAG enforcement): {len(raw_clusters)}')
-    return enforce_dag(dict(raw_clusters), data, max_layer_span)
+    return enforce_dag(dict(raw_clusters), data, max_layer_span, max_sn)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -241,7 +241,7 @@ def cluster_with_target_k(data: dict,
 
 def enforce_dag(raw_clusters: dict,
                 data: dict,
-                max_layer_span: int = 4) -> dict:
+                max_layer_span: int = 4, max_sn=None) -> dict:
     layers = {nid: parse_layer(nid)
               for members in raw_clusters.values() for nid in members}
 
@@ -288,7 +288,8 @@ def enforce_dag(raw_clusters: dict,
                         break
             if changed:
                 break
-
+    if max_sn is not None and len(final) > max_sn:
+        final = merge_to_budget(final, layers, max_sn)
     final_supernodes = {}
     for idx, members in enumerate(final):
         lo = min(layers[n] for n in members)
@@ -806,7 +807,23 @@ def build_synthetic_snapshot() -> dict:
         )
     return dict(kept_ids=kept_ids, pruned_adj=adj, attr=attr)
 
-
+def merge_to_budget(final: list[list[str]], layers: dict, max_sn: int) -> list[list[str]]:
+    """
+    Greedily merge layer-adjacent cluster pairs until len(final) <= max_sn.
+    Merge criterion: smallest centroid-layer gap (preserves DAG order).
+    """
+    while len(final) > max_sn:
+        best_i, best_j, best_gap = 0, 1, float('inf')
+        for i in range(len(final)):
+            for j in range(i + 1, len(final)):
+                ci = np.mean([layers[n] for n in final[i]])
+                cj = np.mean([layers[n] for n in final[j]])
+                if abs(ci - cj) < best_gap:
+                    best_i, best_j, best_gap = i, j, abs(ci - cj)
+        final[best_i] = final[best_i] + final[best_j]
+        final.pop(best_j)
+        final.sort(key=lambda m: min(layers[n] for n in m))
+    return final
 # ─────────────────────────────────────────────────────────────────────────────
 # 11.  MAIN
 # ─────────────────────────────────────────────────────────────────────────────

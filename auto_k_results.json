@@ -2,58 +2,48 @@
   "best_k": 3,
   "sweep": {
     "3": {
-      "total": 0.9313348139228611,
-      "intra_sim": 1.0,
+      "total": 0.9398742548419303,
+      "intra_sim": 0.9764882710008771,
       "dag_safety": 1.0,
-      "flow_balance": 0.9475614779136661,
-      "attr_balance": 0.9475614779136661,
-      "size_score": 0.7222222222222222,
-      "n_middle": 9,
+      "flow_balance": 0.9210444275000023,
+      "attr_balance": 0.9210444275000023,
+      "size_score": 0.8333333333333334,
+      "n_middle": 7,
       "n_warnings": 0,
       "inf_conservation": 0.9999999999998883,
-      "edge_conservation": 0.9999999999999861,
+      "edge_conservation": 0.999999999999986,
       "details": {
-        "SN_00_L1": {
-          "intra_sim": 1.0,
-          "n": 1,
-          "layers": "L1-1"
+        "SN_00_L1_7": {
+          "intra_sim": 0.38733839988708496,
+          "n": 2,
+          "layers": "L1-7"
         },
-        "SN_01_L7": {
-          "intra_sim": 1.0,
-          "n": 1,
-          "layers": "L7-7"
-        },
-        "SN_02_L16": {
+        "SN_01_L16": {
           "intra_sim": 1.0,
           "n": 1,
           "layers": "L16-16"
         },
-        "SN_03_L17": {
+        "SN_02_L17": {
           "intra_sim": 0.7236390113830566,
           "n": 2,
           "layers": "L17-17"
         },
-        "SN_04_L18": {
+        "SN_03_L18": {
           "intra_sim": 1.0,
           "n": 1,
           "layers": "L18-18"
         },
-        "SN_05_L18_19": {
+        "SN_04_L18_19": {
           "intra_sim": 0.7738288640975952,
           "n": 3,
           "layers": "L18-19"
         },
-        "SN_06_L20_22": {
-          "intra_sim": 0.8224710822105408,
-          "n": 3,
+        "SN_05_L20_22": {
+          "intra_sim": 0.640728642543157,
+          "n": 6,
           "layers": "L20-22"
         },
-        "SN_07_L20_21": {
-          "intra_sim": 0.7172693411509196,
-          "n": 3,
-          "layers": "L20-21"
-        },
-        "SN_08_L22": {
+        "SN_06_L22": {
           "intra_sim": 0.9062112967173258,
           "n": 3,
           "layers": "L22-22"
@@ -61,137 +51,97 @@
       }
     },
     "4": {
-      "total": 0.913487450242241,
-      "intra_sim": 1.0,
+      "total": 0.8517929327503715,
+      "intra_sim": 0.6781160120066293,
       "dag_safety": 1.0,
-      "flow_balance": 0.9650609120800747,
-      "attr_balance": 0.9650609120800747,
-      "size_score": 0.6111111111111112,
-      "n_middle": 11,
+      "flow_balance": 0.9267658499268637,
+      "attr_balance": 0.9267658499268637,
+      "size_score": 0.8333333333333334,
+      "n_middle": 7,
       "n_warnings": 0,
       "inf_conservation": 0.9999999999998883,
-      "edge_conservation": 0.9999999999999863,
+      "edge_conservation": 0.9999999999999866,
       "details": {
-        "SN_00_L1": {
-          "intra_sim": 1.0,
-          "n": 1,
-          "layers": "L1-1"
+        "SN_00_L1_7": {
+          "intra_sim": 0.38733839988708496,
+          "n": 2,
+          "layers": "L1-7"
         },
-        "SN_01_L7": {
-          "intra_sim": 1.0,
-          "n": 1,
-          "layers": "L7-7"
-        },
-        "SN_02_L16": {
+        "SN_01_L16": {
           "intra_sim": 1.0,
           "n": 1,
           "layers": "L16-16"
         },
-        "SN_03_L17": {
+        "SN_02_L17": {
           "intra_sim": 0.7236390113830566,
           "n": 2,
           "layers": "L17-17"
         },
-        "SN_04_L18": {
-          "intra_sim": 1.0,
-          "n": 1,
-          "layers": "L18-18"
-        },
-        "SN_05_L18_20": {
-          "intra_sim": 0.8117873072624207,
-          "n": 2,
+        "SN_03_L18_20": {
+          "intra_sim": 0.4872740566730499,
+          "n": 5,
           "layers": "L18-20"
         },
-        "SN_06_L18_19": {
-          "intra_sim": 1.0,
-          "n": 2,
-          "layers": "L18-19"
-        },
-        "SN_07_L20": {
+        "SN_04_L20": {
           "intra_sim": 0.8842443227767944,
           "n": 2,
           "layers": "L20-20"
         },
-        "SN_08_L21": {
+        "SN_05_L21": {
           "intra_sim": 0.6896998882293701,
           "n": 2,
           "layers": "L21-21"
         },
-        "SN_09_L22": {
-          "intra_sim": 0.9062112967173258,
-          "n": 3,
-          "layers": "L22-22"
-        },
-        "SN_10_L22": {
-          "intra_sim": 1.0,
-          "n": 1,
+        "SN_06_L22": {
+          "intra_sim": 0.4531056483586629,
+          "n": 4,
           "layers": "L22-22"
         }
       }
     },
     "5": {
-      "total": 0.9132491920492779,
-      "intra_sim": 1.0,
+      "total": 0.9027961926318226,
+      "intra_sim": 0.838600170180439,
       "dag_safety": 1.0,
-      "flow_balance": 0.9641078793082225,
-      "attr_balance": 0.9641078793082225,
-      "size_score": 0.6111111111111112,
-      "n_middle": 11,
+      "flow_balance": 0.9381978996440966,
+      "attr_balance": 0.9381978996440966,
+      "size_score": 0.8333333333333334,
+      "n_middle": 7,
       "n_warnings": 0,
       "inf_conservation": 0.9999999999998883,
-      "edge_conservation": 0.9999999999999863,
+      "edge_conservation": 0.9999999999999865,
       "details": {
-        "SN_00_L1": {
-          "intra_sim": 1.0,
-          "n": 1,
-          "layers": "L1-1"
+        "SN_00_L1_7": {
+          "intra_sim": 0.38733839988708496,
+          "n": 2,
+          "layers": "L1-7"
         },
-        "SN_01_L7": {
-          "intra_sim": 1.0,
-          "n": 1,
-          "layers": "L7-7"
-        },
-        "SN_02_L16": {
+        "SN_01_L16": {
           "intra_sim": 1.0,
           "n": 1,
           "layers": "L16-16"
         },
-        "SN_03_L17": {
+        "SN_02_L17": {
           "intra_sim": 0.7236390113830566,
           "n": 2,
           "layers": "L17-17"
         },
-        "SN_04_L18": {
-          "intra_sim": 1.0,
-          "n": 1,
-          "layers": "L18-18"
-        },
-        "SN_05_L18_20": {
-          "intra_sim": 0.8117873072624207,
-          "n": 2,
+        "SN_03_L18_20": {
+          "intra_sim": 0.4872740566730499,
+          "n": 5,
           "layers": "L18-20"
         },
-        "SN_06_L18_19": {
-          "intra_sim": 1.0,
-          "n": 2,
-          "layers": "L18-19"
-        },
-        "SN_07_L20": {
+        "SN_04_L20": {
           "intra_sim": 0.8842443227767944,
           "n": 2,
           "layers": "L20-20"
         },
-        "SN_08_L21_22": {
-          "intra_sim": 0.8280688524246216,
-          "n": 2,
+        "SN_05_L21_22": {
+          "intra_sim": 0.6586954096953074,
+          "n": 3,
           "layers": "L21-22"
         },
-        "SN_09_L21": {
-          "intra_sim": 1.0,
-          "n": 1,
-          "layers": "L21-21"
-        },
-        "SN_10_L22": {
+        "SN_06_L22": {
           "intra_sim": 0.9062112967173258,
           "n": 3,
           "layers": "L22-22"

@@ -5,9 +5,9 @@ open circuit_sp_rep.html
 
 touch structure_grouping.py  # force reload
 python auto_grouping.py --file subgraph/austin_clt.pt \
-    --max-layer-span 4 \
+    --max-layer-span 10 \
     --k-min 3 --k-max 5 \
-    --alpha 0.7 --beta 0.3 --run-best
+    --alpha 0.7 --beta 0.3 --run-best --max-sn 7
 
 
 python visualize_circuit_sp_rep.py \
