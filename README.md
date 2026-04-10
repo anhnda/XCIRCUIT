@@ -67,17 +67,7 @@ Node ID conventions: `{layer}_{feature}_{ctx}` for middle nodes, `E_{feature}_{c
 
 ## Usage
 
-### Quick start — single run with fixed K
 
-```bash
-python structure_grouping.py --file subgraph/austin_plt.pt --target-k 7
-```
-
-### Auto-K search with flow-enhanced scoring
-
-```bash
-python auto_grouping.py --file subgraph/austin_plt.pt --run-best
-```
 
 ### Full pipeline: flow analysis + visualization
 
@@ -98,11 +88,6 @@ python visualize_circuit_sp_rep.py \
     --out circuit_sp_rep.html && open circuit_sp_rep.html
 ```
 
-### Synthetic data (no `.pt` file needed)
-
-```bash
-python flow_analysis.py --synthetic --target-k 7
-```
 
 ---
 
