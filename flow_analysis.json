@@ -3,391 +3,334 @@
     "paths": [
       {
         "path": [
-          "SN_EMB_E_5929_6",
-          "SN_03_L18_25",
-          "SN_LOGIT_27_33551_8"
+          "SN_EMB_E_26865_9",
+          "SN_LOGIT_27_22605_10"
         ],
-        "flow": 493.39664067694036,
-        "frac": 0.5861862063799185,
-        "length": 3
-      },
-      {
-        "path": [
-          "SN_EMB_E_5929_6",
-          "SN_02_L14_16",
-          "SN_03_L18_25",
-          "SN_LOGIT_27_33551_8"
-        ],
-        "flow": 74.78884562522988,
-        "frac": 0.08885384715315069,
-        "length": 4
-      },
-      {
-        "path": [
-          "SN_EMB_E_56081_4",
-          "SN_03_L18_25",
-          "SN_LOGIT_27_33551_8"
-        ],
-        "flow": 64.42595148899551,
-        "frac": 0.07654207787863436,
-        "length": 3
-      },
-      {
-        "path": [
-          "SN_EMB_E_9843_1",
-          "SN_03_L18_25",
-          "SN_LOGIT_27_33551_8"
-        ],
-        "flow": 33.072584401175995,
-        "frac": 0.039292308027688384,
-        "length": 3
-      },
-      {
-        "path": [
-          "SN_EMB_E_56081_4",
-          "SN_00_L1_4",
-          "SN_03_L18_25",
-          "SN_LOGIT_27_33551_8"
-        ],
-        "flow": 29.493550639748815,
-        "frac": 0.03504019106913305,
-        "length": 4
-      },
-      {
-        "path": [
-          "SN_EMB_E_5929_6",
-          "SN_LOGIT_27_33551_8"
-        ],
-        "flow": 27.039806365966797,
-        "frac": 0.03212498871732679,
+        "flow": 18.85403060913086,
+        "frac": 0.3087020363546803,
         "length": 2
       },
       {
         "path": [
-          "SN_EMB_E_5929_6",
-          "SN_01_L7_8",
-          "SN_03_L18_25",
-          "SN_LOGIT_27_33551_8"
+          "SN_EMB_E_26865_9",
+          "SN_01_L19_22",
+          "SN_LOGIT_27_22605_10"
         ],
-        "flow": 26.47857048933463,
-        "frac": 0.03145820523668544,
+        "flow": 13.160318720900992,
+        "frac": 0.21547738371928093,
+        "length": 3
+      },
+      {
+        "path": [
+          "SN_EMB_E_26865_9",
+          "SN_00_L16_19",
+          "SN_01_L19_22",
+          "SN_LOGIT_27_22605_10"
+        ],
+        "flow": 8.59518374673606,
+        "frac": 0.14073121978358705,
         "length": 4
       },
       {
         "path": [
-          "SN_EMB_E_56081_4",
-          "SN_02_L14_16",
-          "SN_03_L18_25",
-          "SN_LOGIT_27_33551_8"
+          "SN_EMB_E_6037_4",
+          "SN_01_L19_22",
+          "SN_LOGIT_27_22605_10"
         ],
-        "flow": 23.825954139768882,
-        "frac": 0.028306730364866424,
+        "flow": 6.224299887483381,
+        "frac": 0.10191211046500488,
+        "length": 3
+      },
+      {
+        "path": [
+          "SN_EMB_E_6037_4",
+          "SN_00_L16_19",
+          "SN_01_L19_22",
+          "SN_LOGIT_27_22605_10"
+        ],
+        "flow": 4.554669385161589,
+        "frac": 0.07457480807529666,
         "length": 4
       },
       {
         "path": [
-          "SN_EMB_E_56081_4",
-          "SN_LOGIT_27_33551_8"
+          "SN_EMB_E_2329_7",
+          "SN_01_L19_22",
+          "SN_LOGIT_27_22605_10"
         ],
-        "flow": 14.330299377441406,
-        "frac": 0.01702529595018275,
+        "flow": 3.5666614258622698,
+        "frac": 0.058397892099429784,
+        "length": 3
+      },
+      {
+        "path": [
+          "SN_EMB_E_2329_7",
+          "SN_00_L16_19",
+          "SN_01_L19_22",
+          "SN_LOGIT_27_22605_10"
+        ],
+        "flow": 2.2975407628686657,
+        "frac": 0.037618243377729316,
+        "length": 4
+      },
+      {
+        "path": [
+          "SN_EMB_E_2329_7",
+          "SN_LOGIT_27_22605_10"
+        ],
+        "flow": 1.7139935493469238,
+        "frac": 0.02806367030750105,
         "length": 2
       },
       {
         "path": [
-          "SN_EMB_E_56081_4",
-          "SN_00_L1_4",
-          "SN_02_L14_16",
-          "SN_03_L18_25",
-          "SN_LOGIT_27_33551_8"
+          "SN_EMB_E_26865_9",
+          "SN_00_L16_19",
+          "SN_LOGIT_27_22605_10"
         ],
-        "flow": 13.528550132709011,
-        "frac": 0.016072767478175234,
-        "length": 5
+        "flow": 1.1731906820253122,
+        "frac": 0.019208961737770584,
+        "length": 3
+      },
+      {
+        "path": [
+          "SN_EMB_E_6037_4",
+          "SN_00_L16_19",
+          "SN_LOGIT_27_22605_10"
+        ],
+        "flow": 0.6216848690880724,
+        "frac": 0.010179011004969818,
+        "length": 3
       }
     ],
-    "total_flow": 841.7063303553068,
-    "n_paths": 19,
+    "total_flow": 61.075174079734246,
+    "n_paths": 11,
     "concentration": {
-      "1": 0.5861862063799185,
-      "2": 0.6750400535330693,
-      "3": 0.7515821314117036,
-      "4": 0.790874439439392,
-      "5": 0.8259146305085251,
-      "6": 0.8580396192258518,
-      "7": 0.8894978244625373,
-      "8": 0.9178045548274038,
-      "9": 0.9348298507775865,
-      "10": 0.9509026182557617,
-      "11": 0.964008220746216,
-      "12": 0.9768459474417072,
-      "13": 0.9827345510659824,
-      "14": 0.9873796097349495,
-      "15": 0.9914473528550912
+      "1": 0.3087020363546803,
+      "2": 0.5241794200739612,
+      "3": 0.6649106398575483,
+      "4": 0.7668227503225532,
+      "5": 0.8413975583978498,
+      "6": 0.8997954504972796,
+      "7": 0.937413693875009,
+      "8": 0.96547736418251,
+      "9": 0.9846863259202806,
+      "10": 0.9948653369252504
     },
-    "D_phi": 0.04909738174423828,
+    "D_phi": 0.005134663074749635,
     "top_k": 10,
-    "top_k_frac": 0.9509026182557617
+    "top_k_frac": 0.9948653369252504
   },
   "local_residuals": {
     "per_sn": {
-      "SN_00_L1_4": {
-        "in_flow_pos": 39.1894474029541,
+      "SN_00_L16_19": {
+        "in_flow_pos": 307.3963966369629,
         "in_flow_neg": 0.0,
-        "in_flow_net": 39.1894474029541,
-        "out_flow_pos": 5.431848764419556,
+        "in_flow_net": 307.3963966369629,
+        "out_flow_pos": 276.4789140820503,
         "out_flow_neg": 0.0,
-        "inf_exit": 0.0,
-        "total_out": 5.431848764419556,
-        "residual_abs": 33.757598638534546,
-        "residual_rel": 0.8613951171964991,
-        "balance": 33.757598638534546,
+        "inf_exit": 0.6335847973823547,
+        "total_out": 277.1124988794327,
+        "residual_abs": 30.283897757530212,
+        "residual_rel": 0.09851741298482294,
+        "balance": 30.283897757530212,
         "is_suppressive": false
       },
-      "SN_01_L7_8": {
-        "in_flow_pos": 31.366605281829834,
+      "SN_01_L19_22": {
+        "in_flow_pos": 498.9082832336426,
         "in_flow_neg": 0.0,
-        "in_flow_net": 31.366605281829834,
-        "out_flow_pos": 43.79900932312012,
+        "in_flow_net": 498.9082832336426,
+        "out_flow_pos": 388.24982929229736,
         "out_flow_neg": 0.0,
-        "inf_exit": 0.0,
-        "total_out": 43.79900932312012,
-        "residual_abs": 12.432404041290283,
-        "residual_rel": 0.3963579714662899,
-        "balance": -12.432404041290283,
+        "inf_exit": 9.80747640132904,
+        "total_out": 398.0573056936264,
+        "residual_abs": 100.85097754001617,
+        "residual_rel": 0.2021433215867989,
+        "balance": 100.85097754001617,
         "is_suppressive": false
       },
-      "SN_02_L14_16": {
-        "in_flow_pos": 82.93847846984863,
+      "SN_02_L22_25": {
+        "in_flow_pos": 700.3512706756592,
         "in_flow_neg": 0.0,
-        "in_flow_net": 82.93847846984863,
-        "out_flow_pos": 61.67700958251953,
-        "out_flow_neg": 0.0,
-        "inf_exit": 0.0,
-        "total_out": 61.67700958251953,
-        "residual_abs": 21.2614688873291,
-        "residual_rel": 0.2563522900297504,
-        "balance": 21.2614688873291,
-        "is_suppressive": false
-      },
-      "SN_03_L18_25": {
-        "in_flow_pos": 490.24922013282776,
-        "in_flow_neg": -7.692365646362305,
-        "in_flow_net": 482.55685448646545,
-        "out_flow_pos": 3.9591193199157715,
-        "out_flow_neg": 0.0,
-        "inf_exit": 3.959119141101837,
-        "total_out": 7.918238461017609,
-        "residual_abs": 474.63861602544785,
-        "residual_rel": 0.983591076600818,
-        "balance": 474.63861602544785,
-        "is_suppressive": false
+        "in_flow_net": 700.3512706756592,
+        "out_flow_pos": 0.0,
+        "out_flow_neg": -2.25288724899292,
+        "inf_exit": -2.2528874576091766,
+        "total_out": -4.505774706602097,
+        "residual_abs": 704.8570453822613,
+        "residual_rel": 1.006433592534578,
+        "balance": 704.8570453822613,
+        "is_suppressive": true
       }
     },
-    "R_phi": 0.6244241138233393,
-    "R_phi_max": 0.983591076600818,
-    "n_middle": 4
+    "R_phi": 0.43569810903539996,
+    "R_phi_max": 1.006433592534578,
+    "n_middle": 3
   },
   "shortcut_analysis": {
     "edges": [
       {
-        "src": "SN_EMB_E_5929_6",
-        "tgt": "SN_03_L18_25",
-        "weight": 328.93109130859375,
-        "shortcut_ratio": 0.8683724814726131,
-        "is_shortcut": false,
-        "best_mediator": "SN_02_L14_16",
-        "mediation_strength": 49.859230041503906
-      },
-      {
-        "src": "SN_02_L14_16",
-        "tgt": "SN_03_L18_25",
-        "weight": 61.67700958251953,
-        "shortcut_ratio": 0.9999999999999838,
+        "src": "SN_01_L19_22",
+        "tgt": "SN_02_L22_25",
+        "weight": 378.4423522949219,
+        "shortcut_ratio": 0.9999999999999973,
         "is_shortcut": false,
         "best_mediator": null,
         "mediation_strength": 0.0
       },
       {
-        "src": "SN_EMB_E_5929_6",
-        "tgt": "SN_02_L14_16",
-        "weight": 49.859230041503906,
-        "shortcut_ratio": 0.794697113755671,
-        "is_shortcut": false,
-        "best_mediator": "SN_01_L7_8",
-        "mediation_strength": 12.880685806274414
-      },
-      {
-        "src": "SN_EMB_E_56081_4",
-        "tgt": "SN_03_L18_25",
-        "weight": 42.95063400268555,
-        "shortcut_ratio": 0.7300233465779773,
-        "is_shortcut": false,
-        "best_mediator": "SN_02_L14_16",
-        "mediation_strength": 15.8839693069458
-      },
-      {
-        "src": "SN_01_L7_8",
-        "tgt": "SN_03_L18_25",
-        "weight": 30.918323516845703,
-        "shortcut_ratio": 0.7059137636824171,
-        "is_shortcut": false,
-        "best_mediator": "SN_02_L14_16",
-        "mediation_strength": 12.880685806274414
-      },
-      {
-        "src": "SN_EMB_E_56081_4",
-        "tgt": "SN_00_L1_4",
-        "weight": 28.681400299072266,
-        "shortcut_ratio": 0.9999999999999651,
+        "src": "SN_00_L16_19",
+        "tgt": "SN_01_L19_22",
+        "weight": 188.39944458007812,
+        "shortcut_ratio": 0.9999999999999947,
         "is_shortcut": false,
         "best_mediator": null,
         "mediation_strength": 0.0
       },
       {
-        "src": "SN_EMB_E_5929_6",
-        "tgt": "SN_01_L7_8",
-        "weight": 25.006425857543945,
-        "shortcut_ratio": 0.99999999999996,
+        "src": "SN_EMB_E_26865_9",
+        "tgt": "SN_02_L22_25",
+        "weight": 184.50502014160156,
+        "shortcut_ratio": 0.5089070253979996,
+        "is_shortcut": false,
+        "best_mediator": "SN_01_L19_22",
+        "mediation_strength": 178.0465087890625
+      },
+      {
+        "src": "SN_EMB_E_26865_9",
+        "tgt": "SN_01_L19_22",
+        "weight": 178.0465087890625,
+        "shortcut_ratio": 0.510034898521532,
+        "is_shortcut": false,
+        "best_mediator": "SN_00_L16_19",
+        "mediation_strength": 171.0404052734375
+      },
+      {
+        "src": "SN_EMB_E_26865_9",
+        "tgt": "SN_00_L16_19",
+        "weight": 171.0404052734375,
+        "shortcut_ratio": 0.9999999999999942,
         "is_shortcut": false,
         "best_mediator": null,
         "mediation_strength": 0.0
       },
       {
-        "src": "SN_EMB_E_9843_1",
-        "tgt": "SN_03_L18_25",
-        "weight": 22.048389434814453,
-        "shortcut_ratio": 0.8555118376366382,
-        "is_shortcut": false,
-        "best_mediator": "SN_00_L1_4",
-        "mediation_strength": 3.7237722873687744
-      },
-      {
-        "src": "SN_EMB_E_56081_4",
-        "tgt": "SN_02_L14_16",
-        "weight": 15.8839693069458,
-        "shortcut_ratio": 0.8308620429607679,
-        "is_shortcut": false,
-        "best_mediator": "SN_01_L7_8",
-        "mediation_strength": 3.233487606048584
-      },
-      {
-        "src": "SN_01_L7_8",
-        "tgt": "SN_02_L14_16",
-        "weight": 12.880685806274414,
-        "shortcut_ratio": 0.9999999999999224,
+        "src": "SN_EMB_E_6037_4",
+        "tgt": "SN_00_L16_19",
+        "weight": 90.63593292236328,
+        "shortcut_ratio": 0.999999999999989,
         "is_shortcut": false,
         "best_mediator": null,
         "mediation_strength": 0.0
       },
       {
-        "src": "SN_EMB_E_9843_1",
-        "tgt": "SN_00_L1_4",
-        "weight": 10.508047103881836,
-        "shortcut_ratio": 0.9999999999999049,
-        "is_shortcut": false,
-        "best_mediator": null,
-        "mediation_strength": 0.0
-      },
-      {
-        "src": "SN_EMB_E_5929_6",
-        "tgt": "SN_LOGIT_27_33551_8",
-        "weight": 6.759951591491699,
-        "shortcut_ratio": 0.6306471565830374,
-        "is_shortcut": false,
-        "best_mediator": "SN_03_L18_25",
-        "mediation_strength": 3.9591193199157715
-      },
-      {
-        "src": "SN_03_L18_25",
-        "tgt": "SN_LOGIT_27_33551_8",
-        "weight": 3.9591193199157715,
-        "shortcut_ratio": 0.9999999999997474,
-        "is_shortcut": false,
-        "best_mediator": null,
-        "mediation_strength": 0.0
-      },
-      {
-        "src": "SN_00_L1_4",
-        "tgt": "SN_03_L18_25",
-        "weight": 3.7237722873687744,
-        "shortcut_ratio": 0.6855441763695733,
-        "is_shortcut": false,
-        "best_mediator": "SN_02_L14_16",
-        "mediation_strength": 1.7080764770507812
-      },
-      {
-        "src": "SN_EMB_E_56081_4",
-        "tgt": "SN_LOGIT_27_33551_8",
-        "weight": 3.5825748443603516,
-        "shortcut_ratio": 0.4750358163991849,
+        "src": "SN_00_L16_19",
+        "tgt": "SN_02_L22_25",
+        "weight": 87.44588470458984,
+        "shortcut_ratio": 0.3170105686812147,
         "is_shortcut": true,
-        "best_mediator": "SN_03_L18_25",
-        "mediation_strength": 3.9591193199157715
+        "best_mediator": "SN_01_L19_22",
+        "mediation_strength": 188.39944458007812
       },
       {
-        "src": "SN_EMB_E_56081_4",
-        "tgt": "SN_01_L7_8",
-        "weight": 3.233487606048584,
-        "shortcut_ratio": 0.9999999999996907,
-        "is_shortcut": false,
-        "best_mediator": null,
-        "mediation_strength": 0.0
-      },
-      {
-        "src": "SN_EMB_E_9843_1",
-        "tgt": "SN_01_L7_8",
-        "weight": 3.1266918182373047,
-        "shortcut_ratio": 0.9999999999996801,
-        "is_shortcut": false,
-        "best_mediator": null,
-        "mediation_strength": 0.0
-      },
-      {
-        "src": "SN_EMB_E_9843_1",
-        "tgt": "SN_02_L14_16",
-        "weight": 2.6065168380737305,
-        "shortcut_ratio": 0.454634916383875,
+        "src": "SN_EMB_E_6037_4",
+        "tgt": "SN_01_L19_22",
+        "weight": 84.20881652832031,
+        "shortcut_ratio": 0.48162050500733866,
         "is_shortcut": true,
-        "best_mediator": "SN_01_L7_8",
-        "mediation_strength": 3.1266918182373047
+        "best_mediator": "SN_00_L16_19",
+        "mediation_strength": 90.63593292236328
       },
       {
-        "src": "SN_00_L1_4",
-        "tgt": "SN_02_L14_16",
-        "weight": 1.7080764770507812,
-        "shortcut_ratio": 0.9999999999994145,
+        "src": "SN_EMB_E_2329_7",
+        "tgt": "SN_01_L19_22",
+        "weight": 48.25351333618164,
+        "shortcut_ratio": 0.5134796137206594,
+        "is_shortcut": false,
+        "best_mediator": "SN_00_L16_19",
+        "mediation_strength": 45.72005844116211
+      },
+      {
+        "src": "SN_EMB_E_2329_7",
+        "tgt": "SN_00_L16_19",
+        "weight": 45.72005844116211,
+        "shortcut_ratio": 0.9999999999999781,
         "is_shortcut": false,
         "best_mediator": null,
         "mediation_strength": 0.0
       },
       {
-        "src": "SN_EMB_E_9843_1",
-        "tgt": "SN_LOGIT_27_33551_8",
-        "weight": 0.27059829235076904,
-        "shortcut_ratio": 0.06397549840347427,
+        "src": "SN_EMB_E_2329_7",
+        "tgt": "SN_02_L22_25",
+        "weight": 26.45392608642578,
+        "shortcut_ratio": 0.3541002916293251,
         "is_shortcut": true,
-        "best_mediator": "SN_03_L18_25",
-        "mediation_strength": 3.9591193199157715
+        "best_mediator": "SN_01_L19_22",
+        "mediation_strength": 48.25351333618164
+      },
+      {
+        "src": "SN_EMB_E_6037_4",
+        "tgt": "SN_02_L22_25",
+        "weight": 23.504087448120117,
+        "shortcut_ratio": 0.21184401394683736,
+        "is_shortcut": true,
+        "best_mediator": "SN_00_L16_19",
+        "mediation_strength": 87.44588470458984
+      },
+      {
+        "src": "SN_01_L19_22",
+        "tgt": "SN_LOGIT_27_22605_10",
+        "weight": 9.807476997375488,
+        "shortcut_ratio": 0.9999999999998981,
+        "is_shortcut": false,
+        "best_mediator": null,
+        "mediation_strength": 0.0
+      },
+      {
+        "src": "SN_EMB_E_26865_9",
+        "tgt": "SN_LOGIT_27_22605_10",
+        "weight": 4.713507652282715,
+        "shortcut_ratio": 0.32459972694712114,
+        "is_shortcut": true,
+        "best_mediator": "SN_01_L19_22",
+        "mediation_strength": 9.807476997375488
+      },
+      {
+        "src": "SN_00_L16_19",
+        "tgt": "SN_LOGIT_27_22605_10",
+        "weight": 0.6335847973823547,
+        "shortcut_ratio": 0.06068202734901912,
+        "is_shortcut": true,
+        "best_mediator": "SN_01_L19_22",
+        "mediation_strength": 9.807476997375488
+      },
+      {
+        "src": "SN_EMB_E_2329_7",
+        "tgt": "SN_LOGIT_27_22605_10",
+        "weight": 0.42849838733673096,
+        "shortcut_ratio": 0.041861998610964436,
+        "is_shortcut": true,
+        "best_mediator": "SN_01_L19_22",
+        "mediation_strength": 9.807476997375488
       }
     ],
-    "n_shortcuts": 3,
-    "n_direct": 17,
-    "n_total": 20,
-    "global_shortcut_frac": 0.009812445725995145
+    "n_shortcuts": 7,
+    "n_direct": 9,
+    "n_total": 16,
+    "global_shortcut_frac": 0.14937753063664957
   },
   "combined": {
-    "F_phi": 0.7900900794375043,
-    "path_score": 0.9509026182557617,
-    "residual_score": 0.3755758861766607,
-    "shortcut_score": 0.9901875542740048,
-    "D_phi": 0.04909738174423828,
-    "R_phi": 0.6244241138233393,
-    "R_phi_max": 0.983591076600818,
-    "shortcut_frac": 0.009812445725995145,
-    "n_paths": 19,
-    "top_k_frac": 0.9509026182557617,
-    "n_shortcuts": 3,
-    "n_direct": 17
+    "F_phi": 0.8224234428684853,
+    "path_score": 0.9948653369252504,
+    "residual_score": 0.5643018909646,
+    "shortcut_score": 0.8506224693633504,
+    "D_phi": 0.005134663074749635,
+    "R_phi": 0.43569810903539996,
+    "R_phi_max": 1.006433592534578,
+    "shortcut_frac": 0.14937753063664957,
+    "n_paths": 11,
+    "top_k_frac": 0.9948653369252504,
+    "n_shortcuts": 7,
+    "n_direct": 9
   }
 }
