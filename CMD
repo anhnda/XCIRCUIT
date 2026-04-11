@@ -15,8 +15,8 @@ python visualize_circuit_sp_rep.py \
     --sn-flow flow_analysis_sn_flow.json \
     --out circuit_sp_rep.html && open circuit_sp_rep.html
 
-python flow_analysis.py --file subgraph/austin_clt.pt --auto-k  --k-min 3 --k-max 5 \
-    --alpha 0.7 --beta 0.3  --max-sn 7 --out-json flow_analysis.json
+python flow_analysis.py --file subgraph/austin_clt.pt --auto-k  --k-min 3 --k-max 10 \
+    --alpha 0.7 --beta 0.3  --max-sn 10 --out-json flow_analysis.json
 python visualize_circuit_sp_rep.py \
     --file subgraph/austin_clt.pt \
     --supernode flow_analysis_supernode_map.json \

@@ -22,10 +22,13 @@ FIX HISTORY:
   - inf_to_logit now sourced from adj[:, logit_idx] (actual edge weights)
     instead of attr['influence'] (global scalar proxy). This fixes the
     flow residual inflation at late-layer supernodes.
-  - max_sn budget now applies to middle SNs only (fixed EMB/LOGIT nodes
-    are counted separately), so --max-sn 7 with 4 fixed nodes correctly
-    produces 3 middle + 4 fixed = 7 total supernodes.
+  - max_sn budget fix is in enforce_dag: applies to middle SNs only.
   - Forward mask uses <= (not <) so same-layer cross-SN edges are included.
+  - compute_similarity now applies a mediation penalty to S[i,j] when a
+    node k exists at an intermediate layer with adj[i,k]>0 and adj[k,j]>0.
+    This prevents spectral clustering from grouping non-adjacent nodes like
+    A(L1)+C(L3) when B(L2) mediates A→B→C, which would create a cycle in
+    the supernode graph (sn_adj[AC,B]>0 AND sn_adj[B,AC]>0).
 
 Usage:
   python structure_grouping.py --file subgraph/austin_plt.pt --target-k 7
@@ -103,7 +106,6 @@ def prepare_graph_data(raw: dict) -> dict:
     clerp      = {n: attr[n].get('clerp', '')  for n in kept_ids}
 
     # FIX: use actual edge weights to logit, not attr['influence']
-    # adj[i, logit_idx] = attribution weight node i sends directly to logit
     inf_to_logit = {
         nid: float(adj[i, logit_idx])
         for i, nid in enumerate(kept_ids)
@@ -112,8 +114,6 @@ def prepare_graph_data(raw: dict) -> dict:
     if 'node_inf' in raw:
         node_inf = raw['node_inf'].float()
     else:
-        # node_inf is used only for similarity weighting — keep using
-        # attr['influence'] here since it's a richer signal than edge weight
         ni = torch.tensor([inf_values[n] for n in kept_ids], dtype=torch.float32)
         node_inf = ni / (ni.max() + 1e-8)
 
@@ -139,19 +139,110 @@ def _cosine_norm(M: torch.Tensor) -> torch.Tensor:
     return M / diag.unsqueeze(1) / diag.unsqueeze(0)
 
 
-def compute_similarity(data: dict,
-                       alpha: float = 0.5,
-                       beta:  float = 0.5) -> torch.Tensor:
+def _compute_mediation_penalty(
+    adj: torch.Tensor,
+    layers: list,
+    mediation_penalty: float = 0.1,
+) -> torch.Tensor:
+    """
+    Compute a penalty matrix P where P[i,j] < 1 if grouping nodes i and j
+    would create a cycle in the supernode graph.
+
+    A cycle arises when:
+      - layers[i] < layers[k] < layers[j]  (k is strictly between i and j)
+      - adj[i,k] > 0  (i sends flow to k)
+      - adj[k,j] > 0  (k sends flow to j)
+
+    In that case, grouping i+j into SN_ij produces:
+      sn_adj[SN_ij, SN_k] > 0  (via i→k, since layer[i] <= layer[k])
+      sn_adj[SN_k, SN_ij] > 0  (via k→j, since layer[k] <= layer[j])
+      → CYCLE
+
+    Implementation (vectorized, O(N²) memory, O(N³) ops but via matmul):
+      For each pair (i,j), we need: exists k such that
+        layer[i] < layer[k] < layer[j] AND adj[i,k]>0 AND adj[k,j]>0
+
+      For a fixed pair (i,j) this is (adj[i,:] > 0) @ (adj[:,j] > 0)
+      restricted to k where layer[i] < layer[k] < layer[j].
+
+      We can't vectorize over all three indices simultaneously without
+      O(N³) memory, so we loop over unique layer values of k (typically
+      ~10-25 distinct layers), which is fast in practice.
+
+    Returns:
+        P : torch.Tensor (N, N), values in {mediation_penalty, 1.0}
+            P[i,j] = mediation_penalty if a mediating path exists, else 1.0
+    """
+    N = adj.shape[0]
+    layer_t = torch.tensor(layers, dtype=torch.float32)
+
+    # Binarize adjacency (we only care about existence, not weight)
+    A = (adj > 0).float()   # (N, N)
+
+    # P starts at 1.0; we'll write mediation_penalty where cycles would form
+    P = torch.ones(N, N)
+
+    unique_layers = sorted(set(layers))
+
+    for lk in unique_layers:
+        # Mediator mask: nodes at layer lk
+        k_mask = (layer_t == lk)          # (N,)
+        if not k_mask.any():
+            continue
+
+        # A_ik : (N, n_k)  — which sources send to mediators at lk
+        A_ik = A[:, k_mask]               # shape (N, n_k)
+        # A_kj : (n_k, N)  — which mediators at lk send to targets
+        A_kj = A[k_mask, :]               # shape (n_k, N)
+
+        # mediated[i,j] > 0  iff ∃ k at layer lk with adj[i,k]>0 AND adj[k,j]>0
+        mediated = (A_ik @ A_kj).clamp(0, 1)   # (N, N), binary
+
+        # Only penalize pairs where lk is STRICTLY between layer[i] and layer[j]
+        # i.e. layer[i] < lk < layer[j]  OR  layer[j] < lk < layer[i]
+        # (handle both orderings so P is symmetric)
+        li = layer_t.unsqueeze(1)   # (N,1)
+        lj = layer_t.unsqueeze(0)   # (1,N)
+
+        strictly_between = (
+            ((li < lk) & (lj > lk)) |
+            ((lj < lk) & (li > lk))
+        ).float()   # (N, N)
+
+        # Mark pairs that have at least one mediating path at this layer level
+        has_mediator = (mediated * strictly_between) > 0
+
+        P[has_mediator] = mediation_penalty
+
+    # Never penalize self-similarity
+    P.fill_diagonal_(1.0)
+
+    return P
+
+
+def compute_similarity(
+    data: dict,
+    alpha: float = 0.5,
+    beta:  float = 0.5,
+    mediation_penalty: float = 0.1,
+) -> torch.Tensor:
     """
     S[i,j] = 0.5 * cosine(shared out-neighbors) + 0.5 * cosine(shared in-neighbors)
     Weighted by W = diag(alpha*act_norm + beta*inf_norm).
-    inf_norm here uses attr['influence'] (global signal) — intentional,
-    as it provides richer similarity weighting than edge-to-logit alone.
+
+    Then apply mediation penalty: if a node k exists strictly between layers[i]
+    and layers[j] with adj[i,k]>0 and adj[k,j]>0, multiply S[i,j] by
+    mediation_penalty (default 0.1). This prevents spectral clustering from
+    grouping non-adjacent nodes that have a mediator between them, which would
+    otherwise create a cycle A→B→C where A and C are in the same supernode.
+
+    Set mediation_penalty=1.0 to disable (backward compatible).
     """
     kept_ids   = data['kept_ids']
     adj        = data['adj']
     act_values = data['act_values']
     inf_values = data['inf_values']
+    layers     = data['layers']
 
     act_t = torch.tensor([act_values[n] for n in kept_ids], dtype=torch.float32)
     inf_t = torch.tensor([inf_values[n] for n in kept_ids], dtype=torch.float32)
@@ -164,6 +255,15 @@ def compute_similarity(data: dict,
     S_in_cos  = _cosine_norm(adj.T @ W @ adj)
 
     S = (0.5 * S_out_cos + 0.5 * S_in_cos).clamp(0.0, 1.0)
+
+    if mediation_penalty < 1.0:
+        P = _compute_mediation_penalty(adj, layers, mediation_penalty)
+        S = (S * P).clamp(0.0, 1.0)
+
+        n_penalized = int((P < 1.0).sum().item()) // 2   # symmetric
+        print(f'  Mediation penalty applied to {n_penalized} node pairs '
+              f'(penalty={mediation_penalty})')
+
     return S
 
 
@@ -262,7 +362,6 @@ def cluster_with_target_k(data: dict,
 def merge_to_budget(final: list, layers: dict, max_sn: int) -> list:
     """
     Greedily merge layer-adjacent cluster pairs until len(final) <= max_sn.
-    Merge criterion: smallest centroid-layer gap (preserves DAG order).
     """
     while len(final) > max_sn:
         best_i, best_j, best_gap = 0, 1, float('inf')
@@ -285,10 +384,8 @@ def enforce_dag(raw_clusters: dict,
     """
     Enforce DAG structure (no interleaving layer ranges) and apply max_sn budget.
 
-    FIX: max_sn now applies to MIDDLE supernodes only. Fixed EMB/LOGIT nodes
-    each get their own supernode and are counted separately, so:
-        total SNs = min(len(middle_clusters), max_sn - n_fixed) + n_fixed
-    where n_fixed = n_emb + n_logit.
+    max_sn applies to MIDDLE supernodes only. Fixed EMB/LOGIT nodes each get
+    their own supernode and are counted separately.
     """
     layers = {nid: parse_layer(nid)
               for members in raw_clusters.values() for nid in members}
@@ -337,7 +434,6 @@ def enforce_dag(raw_clusters: dict,
             if changed:
                 break
 
-    # FIX: budget applies to middle SNs only
     if max_sn is not None:
         n_emb   = len([n for n in data['kept_ids'] if n.startswith('E')])
         n_logit = len([n for n in data['kept_ids'] if n.startswith('27')])
@@ -346,7 +442,6 @@ def enforce_dag(raw_clusters: dict,
         if effective_max_middle > 0 and len(final) > effective_max_middle:
             final = merge_to_budget(final, layers, effective_max_middle)
         elif effective_max_middle <= 0:
-            # degenerate: max_sn <= n_fixed, keep at least 1 middle SN
             if len(final) > 1:
                 final = merge_to_budget(final, layers, 1)
 
@@ -358,7 +453,6 @@ def enforce_dag(raw_clusters: dict,
         name = f'SN_{idx:02d}_L{lo}' if lo == hi else f'SN_{idx:02d}_L{lo}_{hi}'
         final_supernodes[name] = members
 
-    # Each EMB and LOGIT node gets its own supernode (unchanged)
     for nid in [n for n in data['kept_ids'] if n.startswith('E')]:
         final_supernodes[f'SN_EMB_{nid}'] = [nid]
     for nid in [n for n in data['kept_ids'] if n.startswith('27')]:
@@ -372,6 +466,14 @@ def enforce_dag(raw_clusters: dict,
 # ─────────────────────────────────────────────────────────────────────────────
 
 def check_dag_safety(final_supernodes: dict) -> list:
+    """
+    Check for interleaving layer ranges between supernode pairs.
+    Also detects containment cycles: SN_A fully contains SN_B's layer range,
+    which would cause both sn_adj[A,B]>0 and sn_adj[B,A]>0 if A has members
+    at layers both above and below B.
+
+    Returns list of (sn_a, sn_b) warning pairs.
+    """
     def layer_range(members):
         lvals = [parse_layer(n) for n in members]
         return min(lvals), max(lvals)
@@ -383,10 +485,15 @@ def check_dag_safety(final_supernodes: dict) -> list:
         for sn_b in sn_list[i+1:]:
             lo_a, hi_a = ranges[sn_a]
             lo_b, hi_b = ranges[sn_b]
-            if lo_a < lo_b < hi_a < hi_b:
+            # Interleaving
+            if (lo_a < lo_b < hi_a) or (lo_b < lo_a < hi_b):
                 warnings.append((sn_a, sn_b))
-            elif lo_b < lo_a < hi_b < hi_a:
-                warnings.append((sn_b, sn_a))
+            # Containment: one SN's range fully contains the other's
+            # (lo_a < lo_b AND hi_b < hi_a) means A wraps around B —
+            # members of A at layers below lo_b will send to B,
+            # and B will send to members of A at layers above hi_b → cycle
+            elif (lo_a < lo_b and hi_b < hi_a) or (lo_b < lo_a and hi_a < hi_b):
+                warnings.append((sn_a, sn_b))
     return warnings
 
 
@@ -437,18 +544,12 @@ def build_supernode_graph(final_supernodes: dict, data: dict) -> dict:
 
     sn_act[SN]   = max( act_values[n] for n in SN )
     sn_inf[SN]   = sum( adj[i, logit_idx] for i in SN )
-                   "total direct edge weight from concept to logit"
-                   FIX: was sum(attr['influence']) — now uses actual adj weights.
     sn_adj[A][B] = sum( adj[i,j] for i in A, j in B, layer[i] <= layer[j] )
-
-    Validation (both ~1.0 — exact by construction):
-      inf_conservation  = sum(sn_inf) / sum(adj[:, logit_idx])
-      edge_conservation = sum(sn_adj) / sum(cross-SN forward edges)
     """
     kept_ids     = data['kept_ids']
     adj          = data['adj']
     act_values   = data['act_values']
-    inf_to_logit = data['inf_to_logit']   # now = adj[i, logit_idx]
+    inf_to_logit = data['inf_to_logit']
     layers       = data['layers']
     logit_idx    = data['logit_idx']
 
@@ -456,7 +557,6 @@ def build_supernode_graph(final_supernodes: dict, data: dict) -> dict:
     sn_names = list(final_supernodes.keys())
     K        = len(sn_names)
 
-    # ── Activation ────────────────────────────────────────────────────────────
     sn_act = {
         sn: max((act_values.get(n, 0.0) for n in members), default=0.0)
         for sn, members in final_supernodes.items()
@@ -464,14 +564,11 @@ def build_supernode_graph(final_supernodes: dict, data: dict) -> dict:
     act_max_global = max(sn_act.values()) or 1.0
     sn_act_norm = {sn: v / act_max_global for sn, v in sn_act.items()}
 
-    # ── Influence: sum of direct logit-edge weights (FIX) ─────────────────────
-    # inf_to_logit[nid] = adj[i, logit_idx]  (set in prepare_graph_data)
     sn_inf = {
         sn: sum(inf_to_logit.get(n, 0.0) for n in members)
         for sn, members in final_supernodes.items()
     }
 
-    # ── Edges: sum of forward adj weights between member sets ─────────────────
     sn_adj_mat = np.zeros((K, K), dtype=np.float64)
 
     for i, sn_a in enumerate(sn_names):
@@ -491,12 +588,10 @@ def build_supernode_graph(final_supernodes: dict, data: dict) -> dict:
             block = adj[src_t][:, tgt_t]
             src_layers = torch.tensor([layers[s] for s in idx_a])
             tgt_layers = torch.tensor([layers[t] for t in idx_b])
-            # <= : same-layer cross-SN edges are valid forward connections
             fwd_mask   = (src_layers.unsqueeze(1) <= tgt_layers.unsqueeze(0)).float()
             sn_adj_mat[i, j] = (block * fwd_mask).sum().item()
 
-    # ── Validation ────────────────────────────────────────────────────────────
-    # inf_conservation: compare against actual adj[:, logit_idx] sum
+    # Validation
     total_inf_orig = float(adj[:, logit_idx].sum())
     total_inf_sn   = sum(sn_inf.values())
     inf_conservation = total_inf_sn / (total_inf_orig + 1e-12)
@@ -516,7 +611,18 @@ def build_supernode_graph(final_supernodes: dict, data: dict) -> dict:
     total_fwd_sn      = float(sn_adj_mat.sum())
     edge_conservation = total_fwd_sn / (total_fwd_orig + 1e-12)
 
-    # ── Derived ───────────────────────────────────────────────────────────────
+    # Cycle check on the resulting sn_adj (belt-and-suspenders)
+    cycles_in_sn_adj = [
+        (sn_names[i], sn_names[j])
+        for i in range(K) for j in range(i+1, K)
+        if sn_adj_mat[i, j] > 0 and sn_adj_mat[j, i] > 0
+    ]
+    if cycles_in_sn_adj:
+        print(f'  [WARN] {len(cycles_in_sn_adj)} cycle(s) detected in sn_adj '
+              f'despite mediation penalty:')
+        for a, b in cycles_in_sn_adj[:5]:
+            print(f'    {a} ↔ {b}')
+
     edges = []
     for i, src in enumerate(sn_names):
         for j, tgt in enumerate(sn_names):
@@ -564,6 +670,7 @@ def build_supernode_graph(final_supernodes: dict, data: dict) -> dict:
         preservation      = inf_conservation,
         orig_reach_total  = total_inf_orig,
         surr_reach_total  = total_inf_sn,
+        cycles_in_sn_adj  = cycles_in_sn_adj,
     )
 
 
@@ -593,6 +700,10 @@ def print_report(final_supernodes: dict,
     print(f'  Edge conservation      : {ec:.6f}'
           f'  ({sng["total_fwd_sn"]:.4f} / {sng["total_fwd_orig"]:.4f})'
           f'  {"[PASS]" if abs(ec-1)<0.001 else "[WARN]"}')
+
+    cycles = sng.get('cycles_in_sn_adj', [])
+    print(f'  SN-adj cycles          : {len(cycles)}'
+          f'  {"[PASS]" if not cycles else "[WARN] — see below"}')
 
     print(f'\n{SEP}')
     print('  SUPERNODE SUMMARY')
@@ -682,9 +793,14 @@ def print_report(final_supernodes: dict,
     print(SEP)
     if dag_warnings:
         for sn_a, sn_b in dag_warnings:
-            print(f'  [WARN] Interleaving layer ranges: {sn_a} ↔ {sn_b}')
+            print(f'  [WARN] Interleaving/containment layer ranges: {sn_a} ↔ {sn_b}')
     else:
-        print('  [PASS] No interleaving layer ranges.')
+        print('  [PASS] No interleaving or containment layer ranges.')
+
+    if cycles:
+        print(f'\n  SN-ADJ CYCLE CHECK')
+        for a, b in cycles:
+            print(f'  [WARN] Cycle in sn_adj: {a} ↔ {b}')
 
     print(f'\n{"═"*72}\n')
 
@@ -821,8 +937,7 @@ def build_synthetic_snapshot() -> dict:
             if i == j:
                 continue
             if j == logit_idx:
-                # Give logit real incoming edges so inf_to_logit is meaningful
-                if layers[i] >= 22:   # late-layer nodes connect to logit
+                if layers[i] >= 22:
                     w = (act_v[kept_ids[i]] / 300.0) * torch.rand(1).item()
                     if w > 0.03:
                         adj[i, j] = round(w, 4)
@@ -852,18 +967,21 @@ def build_synthetic_snapshot() -> dict:
 def main():
     parser = argparse.ArgumentParser(
         description='Supernode grouping for circuit graphs')
-    parser.add_argument('--file',           type=str,   default='subgraph/austin_plt.pt')
-    parser.add_argument('--synthetic',      action='store_true')
-    parser.add_argument('--target-k',       type=int,   default=None)
-    parser.add_argument('--threshold',      type=float, default=0.50)
-    parser.add_argument('--linkage',        type=str,   default='average',
+    parser.add_argument('--file',              type=str,   default='subgraph/austin_plt.pt')
+    parser.add_argument('--synthetic',         action='store_true')
+    parser.add_argument('--target-k',          type=int,   default=None)
+    parser.add_argument('--threshold',         type=float, default=0.50)
+    parser.add_argument('--linkage',           type=str,   default='average',
                         choices=['average', 'complete', 'single'])
-    parser.add_argument('--max-layer-span', type=int,   default=4)
-    parser.add_argument('--alpha',          type=float, default=0.5)
-    parser.add_argument('--beta',           type=float, default=0.5)
-    parser.add_argument('--max-sn',         type=int,   default=None)
-    parser.add_argument('--dendrogram',     type=str,   default='dendrogram.png')
-    parser.add_argument('--out-json',       type=str,   default='supernode_map.json')
+    parser.add_argument('--max-layer-span',    type=int,   default=4)
+    parser.add_argument('--alpha',             type=float, default=0.5)
+    parser.add_argument('--beta',              type=float, default=0.5)
+    parser.add_argument('--max-sn',            type=int,   default=None)
+    parser.add_argument('--mediation-penalty', type=float, default=0.1,
+                        help='Similarity penalty for node pairs with a mediating '
+                             'path between them (0=full block, 1=disable). Default: 0.1')
+    parser.add_argument('--dendrogram',        type=str,   default='dendrogram.png')
+    parser.add_argument('--out-json',          type=str,   default='supernode_map.json')
     args = parser.parse_args()
 
     if args.synthetic:
@@ -879,7 +997,8 @@ def main():
     print(f'  total adj[:,logit] = {data["adj"][:, data["logit_idx"]].sum():.4f}')
 
     print('\nComputing similarity matrix...')
-    S = compute_similarity(data, alpha=args.alpha, beta=args.beta)
+    S = compute_similarity(data, alpha=args.alpha, beta=args.beta,
+                           mediation_penalty=args.mediation_penalty)
     print(f'  S range: [{S.min():.4f}, {S.max():.4f}]')
 
     if args.target_k is not None:
@@ -909,6 +1028,7 @@ def main():
     sng = build_supernode_graph(final_supernodes, data)
     print(f'  inf_conservation  = {sng["inf_conservation"]:.6f}')
     print(f'  edge_conservation = {sng["edge_conservation"]:.6f}')
+    print(f'  sn_adj cycles     = {len(sng.get("cycles_in_sn_adj", []))}')
 
     print_report(final_supernodes, stats, sng, dag_warnings)
 
