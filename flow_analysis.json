@@ -143,7 +143,8 @@
         "residual_abs": 11.203125,
         "residual_rel": 1.1564516129031064,
         "balance": 11.203125,
-        "is_suppressive": false
+        "is_suppressive": false,
+        "suppression_rel": null
       },
       "SN_01_L7": {
         "in_flow_pos": 5.125,
@@ -156,7 +157,8 @@
         "residual_abs": 1.0859375,
         "residual_rel": 0.2617702448210292,
         "balance": 1.0859375,
-        "is_suppressive": false
+        "is_suppressive": false,
+        "suppression_rel": null
       },
       "SN_02_L16_17": {
         "in_flow_pos": 6.9326171875,
@@ -169,7 +171,8 @@
         "residual_abs": 1.8818359375,
         "residual_rel": 0.2714466826313174,
         "balance": -1.8818359375,
-        "is_suppressive": false
+        "is_suppressive": false,
+        "suppression_rel": null
       },
       "SN_03_L18_19": {
         "in_flow_pos": 5.802734375,
@@ -182,7 +185,8 @@
         "residual_abs": 1.810546875,
         "residual_rel": 0.31201615617631784,
         "balance": 1.810546875,
-        "is_suppressive": false
+        "is_suppressive": false,
+        "suppression_rel": null
       },
       "SN_04_L20_22": {
         "in_flow_pos": 19.75390625,
@@ -195,7 +199,8 @@
         "residual_abs": 2.44921875,
         "residual_rel": 0.12746493189672037,
         "balance": 2.44921875,
-        "is_suppressive": false
+        "is_suppressive": false,
+        "suppression_rel": null
       },
       "SN_05_L22": {
         "in_flow_pos": 10.498046875,
@@ -208,12 +213,17 @@
         "residual_abs": 14.861328125,
         "residual_rel": 1.4156279069766093,
         "balance": 14.861328125,
-        "is_suppressive": true
+        "is_suppressive": true,
+        "suppression_rel": 0.2078139534883523
       }
     },
-    "R_phi": 0.59079625590085,
-    "R_phi_max": 1.4156279069766093,
-    "n_middle": 6
+    "R_phi_balance": 0.4258299256856983,
+    "R_phi_suppressive": 0.2078139534883523,
+    "R_phi_max": 1.1564516129031064,
+    "R_phi": 0.4258299256856983,
+    "n_middle": 6,
+    "n_suppressive": 1,
+    "n_balanced": 5
   },
   "shortcut_analysis": {
     "edges": [
@@ -449,17 +459,21 @@
     "global_shortcut_frac": 0.11968528758882321
   },
   "combined": {
-    "F_phi": 0.734896502826579,
+    "F_phi": 0.7843864018911246,
     "path_score": 0.8701024146837026,
-    "residual_score": 0.40920374409914995,
+    "residual_score": 0.5741700743143017,
     "shortcut_score": 0.8803147124111768,
     "D_phi": 0.12989758531629736,
-    "R_phi": 0.59079625590085,
-    "R_phi_max": 1.4156279069766093,
+    "R_phi": 0.4258299256856983,
+    "R_phi_balance": 0.4258299256856983,
+    "R_phi_suppressive": 0.2078139534883523,
+    "R_phi_max": 1.1564516129031064,
     "shortcut_frac": 0.11968528758882321,
     "n_paths": 27,
     "top_k_frac": 0.8701024146837026,
     "n_shortcuts": 6,
-    "n_direct": 19
+    "n_direct": 19,
+    "n_suppressive": 1,
+    "n_balanced": 5
   }
 }

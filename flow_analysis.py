@@ -7,44 +7,20 @@ Three analyses that upgrade conservation checks (necessary) into
 flow faithfulness checks (closer to sufficient):
 
   1. Path Attribution Decomposition
-     Enumerates supernode-level paths from embedding to logit,
-     computes attributed flow along each, reports top-k paths
-     and path concentration metric D(φ).
-
   2. Local Flow Residual
-     At each middle supernode, checks whether in-flow ≈ out-flow + inf_to_logit.
-     Reports per-supernode residual and global R(φ).
-
   3. Shortcut Ratio
-     For each direct edge A→C, measures whether an indirect path A→B→C
-     carries comparable flow — distinguishing genuine direct concept links
-     from artifacts of coarse grouping.
 
 FIX HISTORY:
-  - sn_inf is now sourced from adj[:, logit_idx] in structure_grouping.py,
-    so inf_exit in local_flow_residuals now reflects actual logit-directed
-    flow rather than the global influence scalar. No logic changes needed
-    here — flow_analysis reads sng['sn_inf'] which is already fixed upstream.
+  - sn_inf is now sourced from adj[:, logit_idx] in structure_grouping.py.
   - max_sn budget fix is in structure_grouping.enforce_dag.
-
-Theoretical grounding:
-  D(φ) small  ⟹  a few concept-level causal paths explain most attribution
-  R(φ) small  ⟹  grouping respects flow roles (nodes within a concept
-                   have similar flow profiles)
-  shortcut_ratio near 1  ⟹  direct concept link is genuine
-  shortcut_ratio near 0  ⟹  signal flows through intermediaries
-
-Usage:
-  python flow_analysis.py --file subgraph/austin_plt.pt --target-k 7
-  python flow_analysis.py --synthetic --target-k 7
-
-As library:
-  from flow_analysis import (
-      path_attribution_decomposition,
-      local_flow_residuals,
-      shortcut_analysis,
-      flow_faithfulness_report,
-  )
+  - R_phi is now split into two independent metrics:
+      R_phi_balance    : mean residual over non-suppressive middle SNs only.
+                         Reflects genuine grouping quality (flow imbalance).
+      R_phi_suppressive: mean |inf_exit| / (|in_flow| + ε) over suppressive
+                         SNs only. Reflects suppression strength, reported
+                         separately and does NOT penalize residual_score.
+    This prevents suppressive nodes (inf_exit < 0) from inflating R_phi
+    beyond 1.0, which masked real imbalance issues and distorted F(phi).
 """
 
 import argparse
@@ -74,7 +50,6 @@ from structure_grouping import (
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _classify_sn(sn_name: str) -> str:
-    """Classify a supernode as 'emb', 'logit', or 'middle'."""
     if 'EMB' in sn_name:
         return 'emb'
     elif 'LOGIT' in sn_name:
@@ -84,10 +59,6 @@ def _classify_sn(sn_name: str) -> str:
 
 
 def _build_sn_dag_order(sn_names: list, final_supernodes: dict) -> list:
-    """
-    Return sn_names sorted by minimum layer of their members.
-    This gives a topological order for the supernode DAG.
-    """
     def min_layer(sn):
         members = final_supernodes[sn]
         return min(parse_layer(n) for n in members)
@@ -104,24 +75,9 @@ def path_attribution_decomposition(
     top_k: int = 10,
     min_flow_frac: float = 1e-4,
 ) -> dict:
-    """
-    Enumerate supernode-level paths from embedding to logit supernodes.
-    Compute attributed flow along each path using proportional distribution:
-
-        flow(... → A → B) = flow(... → A) × sn_adj[A,B] / exit_total[A]
-
-    where exit_total[A] = sum_B sn_adj[A,B] + sn_inf[A]
-    (sn_inf[A] = direct edge weight to logit, fixed upstream).
-
-    Returns:
-        paths          : list of (path_tuple, flow_weight), sorted descending
-        total_flow     : float, sum of all path flows
-        concentration  : dict mapping k → fraction of total flow in top-k paths
-        D_phi          : float, flow distortion = 1 - top_k_concentration
-    """
     sn_names = sng['sn_names']
-    sn_adj   = sng['sn_adj']        # K×K numpy array
-    sn_inf   = sng['sn_inf']        # K array — direct adj weight to logit
+    sn_adj   = sng['sn_adj']
+    sn_inf   = sng['sn_inf']
     K        = len(sn_names)
 
     name2idx = {sn: i for i, sn in enumerate(sn_names)}
@@ -131,7 +87,6 @@ def path_attribution_decomposition(
 
     topo_order = _build_sn_dag_order(sn_names, final_supernodes)
 
-    # ── Forward propagation ───────────────────────────────────────────────────
     path_flows: dict[tuple, float] = {}
 
     for sn_e in emb_sns:
@@ -140,7 +95,6 @@ def path_attribution_decomposition(
         if out_total > 0:
             path_flows[(sn_e,)] = out_total
 
-    # Direct emb → logit flow via sn_inf
     for sn_e in emb_sns:
         i = name2idx[sn_e]
         direct_inf = float(sn_inf[i])
@@ -184,7 +138,6 @@ def path_attribution_decomposition(
                 out_weights[sn_names[j]] = w
                 out_total += w
 
-        # sn_inf[i] = direct edge weight to logit (fixed upstream)
         direct_inf = float(sn_inf[i]) if kind == 'middle' else 0.0
         exit_total = out_total + max(0.0, direct_inf)
 
@@ -211,7 +164,6 @@ def path_attribution_decomposition(
                             completed_paths.get(exit_path, 0.0) + inf_flow
                         )
 
-    # Collect remaining paths that end at logit
     for path, flow in path_flows.items():
         if _classify_sn(path[-1]) == 'logit':
             completed_paths[path] = completed_paths.get(path, 0.0) + flow
@@ -261,22 +213,29 @@ def local_flow_residuals(
     final_supernodes: dict,
 ) -> dict:
     """
-    At each middle supernode S, compute:
+    At each middle supernode S, compute signed in/out flow and residual.
 
-        in_flow(S)  = Σ_{S' upstream} sn_adj[S', S]     (positive edges in)
-        out_flow(S) = Σ_{S' downstream} sn_adj[S, S']   (positive edges out)
-                    + max(0, sn_inf[S])                  (direct-to-logit exit)
-                      NOTE: sn_inf[S] = sum(adj[i, logit_idx]) — fixed upstream.
+    Nodes are split into two groups before aggregation:
 
-    Residual = |in_flow - out_flow| / (in_flow + ε)
+      Non-suppressive (inf_exit >= 0):
+        residual_rel = |in_net - total_out| / (|in_net| + ε)
+        Aggregated into R_phi_balance — the primary metric for grouping quality.
+        A high R_phi_balance means flow enters a concept but doesn't leave,
+        indicating the grouping is too coarse or misaligned.
 
-    A well-behaved concept node should have residual ≈ 0, meaning
-    attribution entering the concept roughly equals attribution leaving it.
+      Suppressive (inf_exit < 0):
+        suppression_rel = |inf_exit| / (|in_net| + ε)
+        Aggregated into R_phi_suppressive — reported separately.
+        These nodes genuinely inhibit the logit; their negative exit is not
+        a grouping artifact, so they must not inflate R_phi_balance.
 
     Returns:
-        per_sn    : dict[sn_name → {in_flow, out_flow, inf_exit, residual, ...}]
-        R_phi     : float, global flow residual (mean over middle SNs)
-        R_phi_max : float, worst-case residual
+        per_sn           : dict with per-supernode stats
+        R_phi_balance    : float, mean residual over non-suppressive SNs
+        R_phi_suppressive: float, mean suppression ratio over suppressive SNs
+        R_phi_max        : float, worst-case residual (non-suppressive only)
+        n_middle         : int, total middle SNs
+        n_suppressive    : int, count of suppressive SNs
     """
     sn_names = sng['sn_names']
     sn_adj   = sng['sn_adj']
@@ -286,7 +245,8 @@ def local_flow_residuals(
     name2idx = {sn: i for i, sn in enumerate(sn_names)}
 
     per_sn = {}
-    residuals = []
+    balance_residuals     = []   # non-suppressive nodes
+    suppressive_ratios    = []   # suppressive nodes
 
     for sn in sn_names:
         kind = _classify_sn(sn)
@@ -300,41 +260,52 @@ def local_flow_residuals(
         out_flow_pos = sum(max(0.0, float(sn_adj[i, j])) for j in range(K) if j != i)
         out_flow_neg = sum(min(0.0, float(sn_adj[i, j])) for j in range(K) if j != i)
 
-        # inf_exit = direct edge weight to logit — keep sign.
-        # Positive: excitatory direct logit writer.
-        # Negative: suppressive direct logit writer (inhibits prediction).
         inf_exit     = float(sn_inf[i])
-
-        # Signed net flow: in - out (including negative edges and suppression)
-        in_flow_net  = in_flow_pos  + in_flow_neg
+        in_flow_net  = in_flow_pos + in_flow_neg
         total_out    = out_flow_pos + out_flow_neg + inf_exit
 
         residual_abs = abs(in_flow_net - total_out)
         residual_rel = residual_abs / (abs(in_flow_net) + 1e-12)
 
-        per_sn[sn] = dict(
-            in_flow_pos   = in_flow_pos,
-            in_flow_neg   = in_flow_neg,
-            in_flow_net   = in_flow_net,
-            out_flow_pos  = out_flow_pos,
-            out_flow_neg  = out_flow_neg,
-            inf_exit      = inf_exit,           # signed: neg = suppressive
-            total_out     = total_out,          # signed net exit
-            residual_abs  = residual_abs,
-            residual_rel  = residual_rel,
-            balance       = in_flow_net - total_out,
-            is_suppressive = inf_exit < 0,
-        )
-        residuals.append(residual_rel)
+        is_suppressive = inf_exit < 0
 
-    R_phi     = float(np.mean(residuals)) if residuals else 0.0
-    R_phi_max = float(np.max(residuals))  if residuals else 0.0
+        if is_suppressive:
+            # Suppression ratio: how much of in-flow is consumed by inhibition
+            suppression_rel = abs(inf_exit) / (abs(in_flow_net) + 1e-12)
+            suppressive_ratios.append(suppression_rel)
+        else:
+            balance_residuals.append(residual_rel)
+
+        per_sn[sn] = dict(
+            in_flow_pos      = in_flow_pos,
+            in_flow_neg      = in_flow_neg,
+            in_flow_net      = in_flow_net,
+            out_flow_pos     = out_flow_pos,
+            out_flow_neg     = out_flow_neg,
+            inf_exit         = inf_exit,
+            total_out        = total_out,
+            residual_abs     = residual_abs,
+            residual_rel     = residual_rel,
+            balance          = in_flow_net - total_out,
+            is_suppressive   = is_suppressive,
+            suppression_rel  = abs(inf_exit) / (abs(in_flow_net) + 1e-12)
+                               if is_suppressive else None,
+        )
+
+    R_phi_balance     = float(np.mean(balance_residuals))     if balance_residuals     else 0.0
+    R_phi_suppressive = float(np.mean(suppressive_ratios))    if suppressive_ratios    else 0.0
+    R_phi_max         = float(np.max(balance_residuals))      if balance_residuals     else 0.0
 
     return dict(
-        per_sn    = per_sn,
-        R_phi     = R_phi,
-        R_phi_max = R_phi_max,
-        n_middle  = len(residuals),
+        per_sn            = per_sn,
+        R_phi_balance     = R_phi_balance,
+        R_phi_suppressive = R_phi_suppressive,
+        R_phi_max         = R_phi_max,
+        # backward-compat alias so flow_faithfulness_score doesn't break
+        R_phi             = R_phi_balance,
+        n_middle          = len(per_sn),
+        n_suppressive     = len(suppressive_ratios),
+        n_balanced        = len(balance_residuals),
     )
 
 
@@ -347,16 +318,6 @@ def shortcut_analysis(
     final_supernodes: dict,
     min_edge_weight: float = 1e-6,
 ) -> dict:
-    """
-    For each direct edge A → C in the supernode graph, compute:
-
-        shortcut_ratio(A, C) =
-            sn_adj[A,C] / (sn_adj[A,C] + max_B min(sn_adj[A,B], sn_adj[B,C]))
-
-    Interpretation:
-        ratio ≈ 1.0  →  direct edge dominates, genuine direct concept link
-        ratio ≈ 0.0  →  indirect path dominates, edge is a shortcut artifact
-    """
     sn_names = sng['sn_names']
     sn_adj   = sng['sn_adj']
     K        = len(sn_names)
@@ -433,16 +394,11 @@ def flow_faithfulness_score(
     """
     Combined flow faithfulness score F(φ) ∈ [0, 1].
 
-    Components:
-        path_score     = top-k concentration (1 - D_phi)
-        residual_score = 1 - R_phi
-        shortcut_score = 1 - global_shortcut_frac
-
-    F(φ) = weighted sum.  F ≈ 1 means the supernode graph is a faithful
-    flow abstraction of the original circuit.
+    residual_score uses R_phi_balance only (non-suppressive nodes).
+    R_phi_suppressive is reported but does not affect F(phi).
     """
     path_score     = 1.0 - path_result['D_phi']
-    residual_score = 1.0 - min(1.0, residual_result['R_phi'])
+    residual_score = 1.0 - min(1.0, residual_result['R_phi_balance'])
     shortcut_score = 1.0 - shortcut_result['global_shortcut_frac']
 
     F_phi = (w_concentration * path_score
@@ -450,18 +406,22 @@ def flow_faithfulness_score(
              + w_shortcut    * shortcut_score)
 
     return dict(
-        F_phi          = F_phi,
-        path_score     = path_score,
-        residual_score = residual_score,
-        shortcut_score = shortcut_score,
-        D_phi          = path_result['D_phi'],
-        R_phi          = residual_result['R_phi'],
-        R_phi_max      = residual_result['R_phi_max'],
-        shortcut_frac  = shortcut_result['global_shortcut_frac'],
-        n_paths        = path_result['n_paths'],
-        top_k_frac     = path_result['top_k_frac'],
-        n_shortcuts    = shortcut_result['n_shortcuts'],
-        n_direct       = shortcut_result['n_direct'],
+        F_phi             = F_phi,
+        path_score        = path_score,
+        residual_score    = residual_score,
+        shortcut_score    = shortcut_score,
+        D_phi             = path_result['D_phi'],
+        R_phi             = residual_result['R_phi_balance'],      # compat alias
+        R_phi_balance     = residual_result['R_phi_balance'],
+        R_phi_suppressive = residual_result['R_phi_suppressive'],
+        R_phi_max         = residual_result['R_phi_max'],
+        shortcut_frac     = shortcut_result['global_shortcut_frac'],
+        n_paths           = path_result['n_paths'],
+        top_k_frac        = path_result['top_k_frac'],
+        n_shortcuts       = shortcut_result['n_shortcuts'],
+        n_direct          = shortcut_result['n_direct'],
+        n_suppressive     = residual_result['n_suppressive'],
+        n_balanced        = residual_result['n_balanced'],
     )
 
 
@@ -474,7 +434,6 @@ def flow_faithfulness_report(
     final_supernodes: dict,
     top_k: int = 10,
 ) -> dict:
-    """Run all three analyses and produce a combined report."""
     path_result     = path_attribution_decomposition(sng, final_supernodes, top_k=top_k)
     residual_result = local_flow_residuals(sng, final_supernodes)
     shortcut_result = shortcut_analysis(sng, final_supernodes)
@@ -507,7 +466,7 @@ def print_flow_report(report: dict) -> None:
     print(f'    path_score     = {combined["path_score"]:.4f}'
           f'  (1 - D_phi, top-{report["path_decomposition"]["top_k"]} concentration)')
     print(f'    residual_score = {combined["residual_score"]:.4f}'
-          f'  (1 - R_phi, local flow conservation)')
+          f'  (1 - R_phi_balance, non-suppressive nodes only)')
     print(f'    shortcut_score = {combined["shortcut_score"]:.4f}'
           f'  (1 - shortcut_frac, genuine direct links)')
     print()
@@ -553,22 +512,45 @@ def print_flow_report(report: dict) -> None:
     print(f'\n{SEP}')
     print('  LOCAL FLOW RESIDUALS')
     print(SEP)
-    print(f'  R(φ) = {lr["R_phi"]:.4f}  (mean relative residual)')
-    print(f'  R(φ)_max = {lr["R_phi_max"]:.4f}  (worst-case)')
-    print(f'  Middle supernodes: {lr["n_middle"]}')
-    print(f'  [NOTE] inf_exit = sum(adj[i, logit_idx]) — signed: neg = suppressive')
-    print()
-    print(f'  {"Supernode":<22}  {"in_net":>9}  {"out_net":>9}  {"inf_exit":>9}'
-          f'  {"residual":>9}  {"balance":>9}  Status')
-    print(f'  {"-"*90}')
+    print(f'  R_phi_balance     = {lr["R_phi_balance"]:.4f}'
+          f'  (mean residual, {lr["n_balanced"]} non-suppressive SNs)'
+          f'  ← used in F(φ)')
+    print(f'  R_phi_suppressive = {lr["R_phi_suppressive"]:.4f}'
+          f'  (mean suppression ratio, {lr["n_suppressive"]} suppressive SNs)'
+          f'  ← reported only')
+    print(f'  R_phi_max         = {lr["R_phi_max"]:.4f}'
+          f'  (worst-case, non-suppressive only)')
+    print(f'  Middle supernodes : {lr["n_middle"]} total'
+          f'  ({lr["n_balanced"]} balanced, {lr["n_suppressive"]} suppressive)')
 
-    for sn, st in sorted(lr['per_sn'].items(), key=lambda x: -x[1]['residual_rel']):
-        status = ('[OK]'   if st['residual_rel'] < 0.3 else
-                  '[WARN]' if st['residual_rel'] < 0.6 else '[HIGH]')
-        flag   = '  [SUPPRESSIVE]' if st.get('is_suppressive') else ''
-        print(f'  {sn:<22}  {st["in_flow_net"]:>+9.4f}  {st["total_out"]:>+9.4f}'
-              f'  {st["inf_exit"]:>+9.4f}  {st["residual_rel"]:>9.4f}'
-              f'  {st["balance"]:>+9.4f}  {status}{flag}')
+    # Non-suppressive nodes
+    balanced_sn = {sn: st for sn, st in lr['per_sn'].items()
+                   if not st['is_suppressive']}
+    if balanced_sn:
+        print(f'\n  Non-suppressive nodes (contribute to R_phi_balance):')
+        print(f'  {"Supernode":<22}  {"in_net":>9}  {"out_net":>9}  {"inf_exit":>9}'
+              f'  {"residual":>9}  {"balance":>9}  Status')
+        print(f'  {"-"*86}')
+        for sn, st in sorted(balanced_sn.items(), key=lambda x: -x[1]['residual_rel']):
+            status = ('[OK]'   if st['residual_rel'] < 0.3 else
+                      '[WARN]' if st['residual_rel'] < 0.6 else '[HIGH]')
+            print(f'  {sn:<22}  {st["in_flow_net"]:>+9.4f}  {st["total_out"]:>+9.4f}'
+                  f'  {st["inf_exit"]:>+9.4f}  {st["residual_rel"]:>9.4f}'
+                  f'  {st["balance"]:>+9.4f}  {status}')
+
+    # Suppressive nodes
+    suppressive_sn = {sn: st for sn, st in lr['per_sn'].items()
+                      if st['is_suppressive']}
+    if suppressive_sn:
+        print(f'\n  Suppressive nodes (inf_exit < 0, reported separately):')
+        print(f'  {"Supernode":<22}  {"in_net":>9}  {"out_net":>9}  {"inf_exit":>9}'
+              f'  {"suppr_ratio":>11}  {"balance":>9}')
+        print(f'  {"-"*86}')
+        for sn, st in sorted(suppressive_sn.items(),
+                              key=lambda x: x[1]['suppression_rel'], reverse=True):
+            print(f'  {sn:<22}  {st["in_flow_net"]:>+9.4f}  {st["total_out"]:>+9.4f}'
+                  f'  {st["inf_exit"]:>+9.4f}  {st["suppression_rel"]:>11.4f}'
+                  f'  {st["balance"]:>+9.4f}')
 
     # ── Shortcut analysis ─────────────────────────────────────────────────────
     sa = report['shortcut_analysis']
@@ -610,15 +592,6 @@ def enhanced_score_k(
     w_size:  float = 0.10,
     w_flow:  float = 0.40,
 ) -> dict:
-    """
-    Enhanced scoring that incorporates flow faithfulness.
-
-        total = w_intra * intra_sim
-              + w_dag   * dag_safety
-              + w_attr  * attr_balance
-              + w_size  * size_score
-              + w_flow  * F_phi
-    """
     from auto_grouping import score_k as base_score_k
 
     base = base_score_k(final_supernodes, data, S, target_n_middle,
@@ -636,26 +609,29 @@ def enhanced_score_k(
              + w_flow * F_phi)
 
     return dict(
-        total            = total,
-        intra_sim        = base['intra_sim'],
-        dag_safety       = base['dag_safety'],
-        attr_balance     = base['attr_balance'],
-        size_score       = base['size_score'],
-        F_phi            = F_phi,
-        D_phi            = report['combined']['D_phi'],
-        R_phi            = report['combined']['R_phi'],
-        shortcut_frac    = report['combined']['shortcut_frac'],
-        path_score       = report['combined']['path_score'],
-        residual_score   = report['combined']['residual_score'],
-        shortcut_score   = report['combined']['shortcut_score'],
-        n_middle         = base['n_middle'],
-        n_warnings       = base['n_warnings'],
-        inf_conservation = base.get('inf_conservation', 0.0),
-        edge_conservation= base.get('edge_conservation', 0.0),
-        n_paths          = report['path_decomposition']['n_paths'],
-        top_k_frac       = report['path_decomposition']['top_k_frac'],
-        flow_report      = report,
-        final_supernodes = final_supernodes,
+        total             = total,
+        intra_sim         = base['intra_sim'],
+        dag_safety        = base['dag_safety'],
+        attr_balance      = base['attr_balance'],
+        size_score        = base['size_score'],
+        F_phi             = F_phi,
+        D_phi             = report['combined']['D_phi'],
+        R_phi             = report['combined']['R_phi_balance'],
+        R_phi_balance     = report['combined']['R_phi_balance'],
+        R_phi_suppressive = report['combined']['R_phi_suppressive'],
+        shortcut_frac     = report['combined']['shortcut_frac'],
+        path_score        = report['combined']['path_score'],
+        residual_score    = report['combined']['residual_score'],
+        shortcut_score    = report['combined']['shortcut_score'],
+        n_middle          = base['n_middle'],
+        n_warnings        = base['n_warnings'],
+        inf_conservation  = base.get('inf_conservation', 0.0),
+        edge_conservation = base.get('edge_conservation', 0.0),
+        n_paths           = report['path_decomposition']['n_paths'],
+        top_k_frac        = report['path_decomposition']['top_k_frac'],
+        n_suppressive     = report['combined']['n_suppressive'],
+        flow_report       = report,
+        final_supernodes  = final_supernodes,
     )
 
 
@@ -672,10 +648,6 @@ def find_best_k_with_flow(
     max_sn: int = None,
     weights: dict = None,
 ) -> tuple:
-    """
-    Like find_best_k from auto_grouping, but uses enhanced_score_k
-    that incorporates flow faithfulness.
-    """
     from auto_grouping import eigengap_analysis
 
     kept_ids   = data['kept_ids']
@@ -699,9 +671,9 @@ def find_best_k_with_flow(
     w = weights or {}
     print(f'\n  Sweeping k = {k_lo}..{k_hi} with flow-enhanced scoring')
     print(f'  {"k":>3}  {"n_sn":>4}  {"intra":>6}  {"dag":>5}  {"attr":>5}'
-          f'  {"size":>5}  {"F_phi":>6}  {"D_phi":>6}  {"R_phi":>6}'
-          f'  {"short":>6}  {"TOTAL":>6}')
-    print(f'  {"─"*76}')
+          f'  {"size":>5}  {"F_phi":>6}  {"D_phi":>6}  {"R_bal":>6}'
+          f'  {"R_sup":>6}  {"short":>6}  {"TOTAL":>6}')
+    print(f'  {"─"*84}')
 
     results = {}
     for k in range(k_lo, k_hi + 1):
@@ -728,8 +700,9 @@ def find_best_k_with_flow(
         print(f'  {k:>3}  {n_middle:>2}+{n_total-n_middle:<2}  {sc["intra_sim"]:>6.4f}'
               f'  {sc["dag_safety"]:>5.3f}  {sc["attr_balance"]:>5.3f}'
               f'  {sc["size_score"]:>5.3f}  {sc["F_phi"]:>6.4f}'
-              f'  {sc["D_phi"]:>6.4f}  {sc["R_phi"]:>6.4f}'
-              f'  {sc["shortcut_frac"]:>6.3f}  {sc["total"]:>6.4f}')
+              f'  {sc["D_phi"]:>6.4f}  {sc["R_phi_balance"]:>6.4f}'
+              f'  {sc["R_phi_suppressive"]:>6.4f}  {sc["shortcut_frac"]:>6.3f}'
+              f'  {sc["total"]:>6.4f}')
 
     if not results:
         return eg['eigengap_k'], {}
@@ -745,6 +718,10 @@ def find_best_k_with_flow(
           f'(path={best["path_score"]:.3f}, '
           f'residual={best["residual_score"]:.3f}, '
           f'shortcut={best["shortcut_score"]:.3f})')
+    print(f'    R_phi_balance     = {best["R_phi_balance"]:.4f}'
+          f'  ({best["n_middle"] - best["n_suppressive"]} non-suppressive SNs)')
+    print(f'    R_phi_suppressive = {best["R_phi_suppressive"]:.4f}'
+          f'  ({best["n_suppressive"]} suppressive SNs)')
     print(f'    inf_conservation  = {best["inf_conservation"]:.6f}')
     print(f'    edge_conservation = {best["edge_conservation"]:.6f}')
 
@@ -756,7 +733,6 @@ def find_best_k_with_flow(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def save_flow_report(report: dict, out_path: str = 'flow_analysis.json') -> None:
-    """Save flow report as JSON (numpy arrays converted to lists)."""
     def convert(obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
@@ -790,11 +766,11 @@ def main():
     parser.add_argument('--beta',           type=float, default=0.5)
     parser.add_argument('--top-k-paths',    type=int,   default=10)
     parser.add_argument('--out-json',       type=str,   default='flow_analysis.json')
-    parser.add_argument('--auto-k',         action='store_true',
-                        help='Run enhanced auto-k search with flow scoring')
+    parser.add_argument('--auto-k',         action='store_true')
     parser.add_argument('--k-min',          type=int,   default=None)
     parser.add_argument('--k-max',          type=int,   default=None)
     parser.add_argument('--max-sn',         type=int,   default=None)
+    parser.add_argument('--mediation-penalty', type=float, default=0.1)
     args = parser.parse_args()
 
     if args.synthetic:
@@ -812,7 +788,8 @@ def main():
     print(f'  total adj[:,logit] = {data["adj"][:, data["logit_idx"]].sum():.4f}')
 
     print('Computing similarity matrix...')
-    S = compute_similarity(data, alpha=args.alpha, beta=args.beta)
+    S = compute_similarity(data, alpha=args.alpha, beta=args.beta,
+                           mediation_penalty=args.mediation_penalty)
 
     if args.auto_k:
         best_k, results = find_best_k_with_flow(
@@ -824,9 +801,7 @@ def main():
         if best_k in results and 'flow_report' in results[best_k]:
             print_flow_report(results[best_k]['flow_report'])
             save_flow_report(results[best_k]['flow_report'], args.out_json)
-            # Save the supernode map that produced this report
             best_sn = results[best_k]['final_supernodes']
-            # Build and save sn_flow JSON for visualizer
             sng = build_supernode_graph(best_sn, data)
             sn_flow_path = args.out_json.replace('.json', '_sn_flow.json')
             with open(sn_flow_path, 'w') as f:
