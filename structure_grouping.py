@@ -409,7 +409,16 @@ def enforce_dag(raw_clusters: dict,
 
     final.sort(key=lambda m: min(layers[n] for n in m))
 
-    # Resolve interleaving
+    # Resolve interleaving and containment cycles.
+    #
+    # Interleaving: lo_i < lo_j < hi_i < hi_j  (ranges overlap but neither contains)
+    #   → split the wider one at the other's lo boundary.
+    #
+    # Containment: lo_i < lo_j AND hi_j < hi_i  (SN_i wraps around SN_j)
+    #   → guarantees a cycle in sn_adj: members of SN_i below lo_j send flow
+    #     into SN_j (layer i_low <= layer j), and SN_j sends flow into members
+    #     of SN_i above hi_j (layer j <= layer i_high).
+    #   → split SN_i at lo_j so the two parts sit cleanly on either side of SN_j.
     changed = True
     while changed:
         changed = False
@@ -419,7 +428,9 @@ def enforce_dag(raw_clusters: dict,
                 hi_i = max(layers[n] for n in final[i])
                 lo_j = min(layers[n] for n in final[j])
                 hi_j = max(layers[n] for n in final[j])
+
                 if (lo_i < lo_j < hi_i) or (lo_j < lo_i < hi_j):
+                    # Interleaving: split the wider cluster
                     victim = i if (hi_i - lo_i) >= (hi_j - lo_j) else j
                     other  = j if victim == i else i
                     split  = min(layers[n] for n in final[other])
@@ -431,6 +442,29 @@ def enforce_dag(raw_clusters: dict,
                         final.sort(key=lambda m: min(layers[n] for n in m))
                         changed = True
                         break
+
+                elif (lo_i < lo_j and hi_j < hi_i):
+                    # SN_i contains SN_j — split SN_i at lo_j
+                    lo_part = [n for n in final[i] if layers[n] <  lo_j]
+                    hi_part = [n for n in final[i] if layers[n] >= lo_j]
+                    if lo_part and hi_part:
+                        final[i] = lo_part
+                        final.append(hi_part)
+                        final.sort(key=lambda m: min(layers[n] for n in m))
+                        changed = True
+                        break
+
+                elif (lo_j < lo_i and hi_i < hi_j):
+                    # SN_j contains SN_i — split SN_j at lo_i
+                    lo_part = [n for n in final[j] if layers[n] <  lo_i]
+                    hi_part = [n for n in final[j] if layers[n] >= lo_i]
+                    if lo_part and hi_part:
+                        final[j] = lo_part
+                        final.append(hi_part)
+                        final.sort(key=lambda m: min(layers[n] for n in m))
+                        changed = True
+                        break
+
             if changed:
                 break
 
